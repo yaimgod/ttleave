@@ -1,0 +1,54 @@
+.git
+.gitignore
+.next
+node_modules
+npm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# Dev/docs
+*.md
+README*
+CHANGELOG*
+LICENSE
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test / coverage
+coverage
+.nyc_output
+__tests__
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Misc
+.prettierrc
+.eslintrc*
+jest.config*
+
+# Supabase migrations and config are mounted as Docker volumes into the db
+# container — they are NOT baked into the Next.js app image
+supabase/
+
+# Scripts are not needed inside the Next.js app container
+scripts/
+
+# Docker files (not useful inside the image)
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+coolify.json

@@ -1,0 +1,213 @@
+# supabase/kong.yml
+# Kong 2.8.1 declarative configuration (DB-less mode)
+# _format_version must be "1.1" for Kong 2.x
+#
+# Kong substitutes ${SUPABASE_ANON_KEY}, ${SUPABASE_SERVICE_KEY},
+# ${DASHBOARD_USERNAME}, ${DASHBOARD_PASSWORD} from the environment at startup.
+# These are set on the kong service in docker-compose.yml.
+_format_version: "1.1"
+
+###############################################################################
+# Consumers
+# ANON  → the public browser key (anon role)
+# SERVICE_ROLE → the server-side service key (service_role / admin role)
+# DASHBOARD → basic-auth user for the Studio UI
+###############################################################################
+consumers:
+  - username: ANON
+    keyauth_credentials:
+      - key: ${SUPABASE_ANON_KEY}
+
+  - username: SERVICE_ROLE
+    keyauth_credentials:
+      - key: ${SUPABASE_SERVICE_KEY}
+
+  - username: DASHBOARD
+    basicauth_credentials:
+      - username: ${DASHBOARD_USERNAME}
+        password: ${DASHBOARD_PASSWORD}
+
+###############################################################################
+# ACL Groups
+###############################################################################
+acls:
+  - consumer: ANON
+    group: anon
+
+  - consumer: SERVICE_ROLE
+    group: anon
+
+  - consumer: SERVICE_ROLE
+    group: admin
+
+###############################################################################
+# Services & Routes
+###############################################################################
+services:
+
+  # ── AUTH: open endpoints (no API key required) ─────────────────────────────
+  # /auth/v1/verify is used by email confirmation links
+  - name: auth-v1-open-verify
+    url: http://auth:9999/verify
+    routes:
+      - name: auth-v1-open-verify
+        strip_path: true
+        paths:
+          - /auth/v1/verify
+    plugins:
+      - name: cors
+
+  # /auth/v1/callback is used by OAuth providers
+  - name: auth-v1-open-callback
+    url: http://auth:9999/callback
+    routes:
+      - name: auth-v1-open-callback
+        strip_path: true
+        paths:
+          - /auth/v1/callback
+    plugins:
+      - name: cors
+
+  # /auth/v1/authorize initiates OAuth flow
+  - name: auth-v1-open-authorize
+    url: http://auth:9999/authorize
+    routes:
+      - name: auth-v1-open-authorize
+        strip_path: true
+        paths:
+          - /auth/v1/authorize
+    plugins:
+      - name: cors
+
+  # ── AUTH: protected endpoints (anon or service_role key required) ──────────
+  - name: auth-v1
+    url: http://auth:9999
+    routes:
+      - name: auth-v1-all
+        strip_path: true
+        paths:
+          - /auth/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - anon
+            - admin
+
+  # ── REST (PostgREST) ───────────────────────────────────────────────────────
+  - name: rest-v1
+    url: http://rest:3000
+    routes:
+      - name: rest-v1-all
+        strip_path: true
+        paths:
+          - /rest/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - anon
+            - admin
+
+  # ── GRAPHQL (PostgREST GraphQL endpoint) ───────────────────────────────────
+  - name: graphql-v1
+    url: http://rest:3000/rpc/graphql
+    routes:
+      - name: graphql-v1-all
+        strip_path: true
+        paths:
+          - /graphql/v1
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Content-Profile: graphql_public"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - anon
+            - admin
+
+  # ── REALTIME ───────────────────────────────────────────────────────────────
+  # Realtime uses WebSocket connections; Kong proxies the upgrade transparently.
+  - name: realtime-v1
+    url: http://realtime:4000/socket
+    routes:
+      - name: realtime-v1-all
+        strip_path: true
+        paths:
+          - /realtime/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          # hide_credentials: false so the JWT is forwarded to Realtime
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - anon
+            - admin
+
+  # ── STORAGE ────────────────────────────────────────────────────────────────
+  # Storage API handles multipart uploads; no ACL plugin — auth is inside the service.
+  - name: storage-v1
+    url: http://storage:5000
+    routes:
+      - name: storage-v1-all
+        strip_path: true
+        paths:
+          - /storage/v1/
+    plugins:
+      - name: cors
+
+  # ── PG-META (admin only) ───────────────────────────────────────────────────
+  - name: meta
+    url: http://meta:8080
+    routes:
+      - name: meta-all
+        strip_path: true
+        paths:
+          - /pg/
+    plugins:
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+
+  # ── STUDIO (catch-all, basic-auth protected) ───────────────────────────────
+  # Studio is served at / by Kong and protected with HTTP Basic Auth.
+  # Access via http://your-vps:8001 (or KONG_HTTP_PORT) using DASHBOARD_USERNAME / DASHBOARD_PASSWORD.
+  - name: dashboard
+    url: http://studio:3000
+    routes:
+      - name: dashboard-all
+        strip_path: true
+        paths:
+          - /
+    plugins:
+      - name: cors
+      - name: basic-auth
+        config:
+          hide_credentials: true

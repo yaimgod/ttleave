@@ -1,0 +1,12 @@
+{
+  "port": 3000,
+  "healthcheck": "/api/health",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "compose": {
+    "file": "docker-compose.yml",
+    "primaryService": "app",
+    "exposePort": 3000
+  }
+}
