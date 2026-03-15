@@ -10,18 +10,45 @@ const PUBLIC_PATHS = [
   "/api/join",
 ];
 
+type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
+
+// The cookie name is derived from the PUBLIC URL (what the browser uses), not the
+// internal Docker URL. @supabase/ssr uses: sb-<hostname>-auth-token
+// Browser sets cookies using NEXT_PUBLIC_SUPABASE_URL → sb-localhost-auth-token
+// We must use the same name here so we can read the browser's session cookies.
+//
+// For the actual HTTP network calls to GoTrue, we use SUPABASE_URL (http://kong:8000)
+// which IS reachable inside the Docker container. localhost:8001 is NOT reachable
+// inside the container — it is only available on the Docker host machine.
+function getCookieName(url: string): string {
+  try {
+    const hostname = new URL(url).hostname.split(".")[0];
+    return `sb-${hostname}-auth-token`;
+  } catch {
+    return "sb-localhost-auth-token";
+  }
+}
+
+const COOKIE_NAME = getCookieName(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:8001");
+// Internal URL for server-side HTTP calls (reachable inside Docker container)
+const INTERNAL_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!;
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    INTERNAL_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: {
+        // Force the cookie name to match what the browser set (derived from public URL)
+        name: COOKIE_NAME,
+      },
       cookies: {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );

@@ -1,10 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { CountdownCard } from "@/components/countdown/CountdownCard";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { List, Plus } from "lucide-react";
 import Link from "next/link";
+
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
+type EventWithGroup = EventRow & { groups: { name: string } | null };
 
 export const metadata = { title: "Events — TTLeave" };
 
@@ -18,10 +22,12 @@ export default async function EventsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
+  if (!user) return null;
+
   let query = supabase
     .from("events")
     .select("*, groups(name)")
-    .eq("owner_id", user!.id)
+    .eq("owner_id", user.id)
     .order("target_date", { ascending: true });
 
   if (searchParams.type) query = query.eq("event_type", searchParams.type);
@@ -29,8 +35,8 @@ export default async function EventsPage({
     query = query.eq("is_completed", searchParams.completed === "true");
   }
 
-  const { data: events } = await query;
-  const allEvents = events ?? [];
+  const { data } = await query;
+  const allEvents = (data ?? []) as EventWithGroup[];
 
   return (
     <div className="container max-w-5xl py-6 px-4">

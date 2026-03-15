@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { createEventSchema } from "@/lib/validations/event.schema";
+
+type EventInsert = Database["public"]["Tables"]["events"]["Insert"];
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -44,13 +47,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const insertPayload: EventInsert = {
+    ...parsed.data,
+    owner_id: user.id,
+    original_target_date: parsed.data.target_date,
+  };
   const { data, error } = await supabase
     .from("events")
-    .insert({
-      ...parsed.data,
-      owner_id: user.id,
-      original_target_date: parsed.data.target_date,
-    })
+    .insert(insertPayload as never)
     .select()
     .single();
 

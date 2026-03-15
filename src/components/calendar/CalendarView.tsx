@@ -7,8 +7,6 @@ import {
   isSameDay,
   parseISO,
   format,
-  startOfMonth,
-  endOfMonth,
 } from "date-fns";
 import {
   Popover,
@@ -83,25 +81,24 @@ export function CalendarView({
         classNames={{
           months: "w-full",
           month: "w-full",
-          table: "w-full border-collapse",
-          head_row: "flex",
-          head_cell: "flex-1 text-center text-xs text-muted-foreground font-medium py-2",
-          row: "flex w-full",
-          cell: "flex-1 text-center relative p-0",
-          day: "w-full h-16 text-sm p-1 flex flex-col items-center gap-0.5 rounded-md hover:bg-muted cursor-pointer",
-          day_today: "bg-accent",
-          day_outside: "opacity-40",
-          day_selected: "bg-primary text-primary-foreground",
+          month_grid: "w-full border-collapse",
+          weekdays: "flex",
+          weekday: "flex-1 text-center text-xs text-muted-foreground font-medium py-2",
+          week: "flex w-full",
+          day: "flex-1 text-center relative p-0",
+          day_button: "w-full h-16 text-sm p-1 flex flex-col items-center gap-0.5 rounded-md hover:bg-muted cursor-pointer",
+          today: "bg-accent",
+          outside: "opacity-40",
+          selected: "bg-primary text-primary-foreground",
         }}
         components={{
-          Day: ({ date, displayMonth }) => {
+          Day: ({ day, modifiers }) => {
+            const date = day.date;
             const key = format(date, "yyyy-MM-dd");
             const dayEvents = eventsByDay.get(key) ?? [];
             const commentCount = commentsByDay.get(key) ?? 0;
             const daysAdj = adjustmentsByDay.get(key) ?? 0;
-            const isCurrentMonth =
-              date >= startOfMonth(displayMonth) &&
-              date <= endOfMonth(displayMonth);
+            const isCurrentMonth = !day.outside;
 
             const cell = (
               <div

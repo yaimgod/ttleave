@@ -1,5 +1,3 @@
-version: "3.8"
-
 # ══════════════════════════════════════════════════════════════════════════════
 # TTLeave — Fully Self-Hosted Stack
 #
@@ -10,7 +8,10 @@ version: "3.8"
 #   1. cp .env.example .env
 #   2. bash scripts/generate-secrets.sh  → paste output into .env
 #   3. Fill in SMTP_* and URL vars in .env
-#   4. docker compose up -d
+#   4. If db previously failed to start (e.g. "schema auth does not exist"), run:
+#      docker compose down -v   # removes volumes so db can re-initialize
+#   5. docker compose up -d
+#   Role passwords are set by the db container on startup (scripts/db-setpass.sh).
 #
 # COOLIFY DEPLOYMENT:
 #   - Use "Docker Compose" deployment type in Coolify
@@ -31,9 +32,10 @@ volumes:
 services:
 
   # ── POSTGRESQL ──────────────────────────────────────────────────────────────
-  # supabase/postgres ships with auth schema, row-level security, extensions,
-  # and the supabase_realtime publication pre-configured.
-  # Files in /docker-entrypoint-initdb.d/ are run once on first boot (empty volume).
+  # supabase/postgres ships with the auth schema, roles (anon, authenticator,
+  # supabase_admin, etc.) and extensions. We let it use its own entrypoint.
+  # POSTGRES_PASSWORD sets the superuser password; the image also sets it on
+  # the reserved Supabase roles via its own init scripts.
   db:
     image: supabase/postgres:15.8.1.085
     restart: unless-stopped
@@ -42,11 +44,6 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
       - db-config:/etc/postgresql-custom
-      # Migrations applied once on first boot, in alphabetical order
-      - ./supabase/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
-      - ./supabase/migrations/002_rls_policies.sql:/docker-entrypoint-initdb.d/002_rls_policies.sql:ro
-      - ./supabase/migrations/003_functions_triggers.sql:/docker-entrypoint-initdb.d/003_functions_triggers.sql:ro
-      - ./supabase/migrations/004_realtime_publication.sql:/docker-entrypoint-initdb.d/004_realtime_publication.sql:ro
     environment:
       POSTGRES_HOST: /var/run/postgresql
       PGPORT: ${POSTGRES_PORT:-5432}
@@ -69,6 +66,68 @@ services:
       - -c
       - log_min_messages=fatal
 
+  # ── MIGRATIONS ───────────────────────────────────────────────────────────────
+  # One-shot service that runs after db is healthy:
+  #   1. Sets POSTGRES_PASSWORD on the Supabase reserved roles so downstream
+  #      services (auth, rest, storage, realtime) can authenticate via TCP.
+  #      Must connect as supabase_admin (the actual superuser in supabase/postgres).
+  #   2. Applies the four app SQL migration files (idempotent).
+  migrate:
+    image: supabase/postgres:15.8.1.085
+    restart: "no"
+    networks:
+      - supabase_net
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./supabase/migrations:/migrations:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo "Waiting for db..."
+        until pg_isready -h db -U supabase_admin -d postgres 2>/dev/null; do sleep 2; done
+        echo "DB ready."
+
+        # supabase/postgres sets POSTGRES_PASSWORD on the supabase_admin role.
+        # Connect as supabase_admin (the true superuser) to set passwords on
+        # the other reserved roles so PostgREST, GoTrue and Storage can connect.
+        ESCAPED=$(printf '%s' "$$POSTGRES_PASSWORD" | sed "s/'/''/g")
+        psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" <<SQL
+          ALTER ROLE supabase_auth_admin    WITH PASSWORD '$$ESCAPED';
+          ALTER ROLE supabase_storage_admin WITH PASSWORD '$$ESCAPED';
+          ALTER ROLE authenticator          WITH PASSWORD '$$ESCAPED';
+        SQL
+        echo "Role passwords set."
+
+        # Apply app schema migrations (idempotent: skip if profiles table exists).
+        if psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -tAc \
+          "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='profiles'" \
+          | grep -q 1; then
+          echo "Migrations already applied."
+          exit 0
+        fi
+
+        echo "Applying migrations..."
+        for f in \
+          /migrations/001_initial_schema.sql \
+          /migrations/002_rls_policies.sql \
+          /migrations/003_functions_triggers.sql \
+          /migrations/004_realtime_publication.sql; do
+          echo "  -> $$f"
+          psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -f "$$f"
+        done
+        echo "All migrations applied."
+
+        # Create _realtime schema so the Realtime service can run its own migrations.
+        psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -c \
+          "CREATE SCHEMA IF NOT EXISTS _realtime; GRANT ALL ON SCHEMA _realtime TO supabase_admin;"
+        echo "_realtime schema ready."
+    depends_on:
+      db:
+        condition: service_healthy
+
   # ── KONG API GATEWAY ────────────────────────────────────────────────────────
   # All Supabase client requests (REST, Auth, Realtime, Storage) flow through Kong.
   # Kong uses declarative (DB-less) config from supabase/kong.yml.
@@ -80,7 +139,11 @@ services:
     ports:
       - "${KONG_HTTP_PORT:-8001}:8000"
     volumes:
-      - ./supabase/kong.yml:/home/kong/kong.yml:ro
+      - ./supabase/kong.yml:/home/kong/kong.yml.tpl:ro
+      - ./supabase/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
+    # kong-entrypoint.sh uses perl to substitute ${VAR} placeholders in kong.yml.tpl
+    # before Kong loads the config. Kong 2.x does NOT auto-expand env vars.
+    entrypoint: ["/bin/bash", "/home/kong/kong-entrypoint.sh"]
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
@@ -88,7 +151,6 @@ services:
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
-      # These are substituted into kong.yml at startup
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-supabase}
@@ -136,19 +198,17 @@ services:
       GOTRUE_MAILER_URLPATHS_CONFIRMATION: ${MAILER_URLPATHS_CONFIRMATION:-/auth/v1/verify}
       GOTRUE_MAILER_URLPATHS_RECOVERY: ${MAILER_URLPATHS_RECOVERY:-/auth/v1/verify}
       GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: ${MAILER_URLPATHS_EMAIL_CHANGE:-/auth/v1/verify}
-      GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP:-false}
-      GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM:-false}
-      # OAuth providers — fill in .env if you want social login
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_SMS_AUTOCONFIRM: "false"
       GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${ENABLE_GOOGLE_AUTH:-false}
       GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
-      GOTRUE_EXTERNAL_GITHUB_ENABLED: ${ENABLE_GITHUB_AUTH:-false}
-      GOTRUE_EXTERNAL_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
-      GOTRUE_EXTERNAL_GITHUB_SECRET: ${GITHUB_CLIENT_SECRET}
-      GOTRUE_EXTERNAL_GITHUB_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
+
     depends_on:
-      db:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
@@ -156,6 +216,29 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # ── MAILPIT (SMTP + Web UI for outbound email) ──────────────────────────────
+  # Catches all outgoing email from GoTrue and provides a web UI at port 8025.
+  # SMTP relay: mailpit:1025 (no auth, no TLS — internal only).
+  # On production: replace SMTP_HOST/PORT/USER/PASS in .env with your real provider
+  # and remove or comment out this service.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    networks:
+      - supabase_net
+    ports:
+      - "127.0.0.1:8025:8025"   # Web UI — browse caught emails
+      - "127.0.0.1:1025:1025"   # SMTP intake (internal; not exposed publicly)
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8025/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ── POSTGREST (REST API) ────────────────────────────────────────────────────
   rest:
@@ -174,11 +257,12 @@ services:
       PGRST_DB_MAX_ROWS: ${PGRST_DB_MAX_ROWS:-1000}
       PGRST_DB_EXTRA_SEARCH_PATH: ${PGRST_DB_EXTRA_SEARCH_PATH:-public,extensions}
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: postgrest
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      # PostgREST image has no wget/curl — use bash built-in TCP check
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/3000"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -209,19 +293,11 @@ services:
       RUN_JANITOR: "true"
       DISABLE_HEALTHCHECK_LOGGING: "true"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-sSfL",
-          "--head",
-          "-o",
-          "/dev/null",
-          "http://localhost:4000/api/tenants/realtime-dev/health",
-        ]
+      # Health endpoint requires JWT; use a simple TCP port check instead
+      test: ["CMD", "sh", "-c", "curl -sf http://127.0.0.1:4000/ > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -251,10 +327,8 @@ services:
       IMGPROXY_URL: http://imgproxy:5001
       REQUEST_ALLOW_X_FORWARDED_PATH: "true"
     depends_on:
-      db:
-        condition: service_healthy
-      rest:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       imgproxy:
         condition: service_healthy
     healthcheck:
@@ -265,7 +339,7 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://localhost:5000/status",
+          "http://127.0.0.1:5000/status",
         ]
       interval: 10s
       timeout: 5s
@@ -317,6 +391,14 @@ services:
       - supabase_net
     ports:
       - "127.0.0.1:3001:3000"
+    # Studio (Next.js) binds to its eth0 IP, not loopback. Use os.hostname() so
+    # the healthcheck resolves to the correct interface regardless of container IP.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://'+require('os').hostname()+':3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     environment:
       STUDIO_PG_META_URL: http://meta:8080
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -359,6 +441,10 @@ services:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      # Server-side URL — used by Next.js SSR/middleware to reach Kong inside Docker.
+      # NEXT_PUBLIC_SUPABASE_URL is the browser-facing URL (localhost or your domain)
+      # and is unreachable from inside the container. This internal URL is used instead.
+      SUPABASE_URL: http://kong:8000
     depends_on:
       kong:
         condition: service_healthy
@@ -371,7 +457,7 @@ services:
           "--quiet",
           "--tries=1",
           "--spider",
-          "http://localhost:3000/api/health",
+          "http://127.0.0.1:3000/api/health",
         ]
       interval: 30s
       timeout: 10s

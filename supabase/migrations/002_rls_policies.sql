@@ -9,7 +9,7 @@ RETURNS boolean AS $$
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role = 'admin'
   );
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 -- Helper: check if user is a member of a group
 CREATE OR REPLACE FUNCTION public.is_group_member(p_group_id uuid)
@@ -18,7 +18,7 @@ RETURNS boolean AS $$
     SELECT 1 FROM public.group_members
     WHERE group_id = p_group_id AND user_id = auth.uid()
   );
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 -- ── PROFILES ─────────────────────────────────────────────────
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;

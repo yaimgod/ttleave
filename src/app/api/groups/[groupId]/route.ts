@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { createGroupSchema } from "@/lib/validations/group.schema";
 import { isValidUUID } from "@/lib/utils/uuid";
 
+type GroupUpdate = Database["public"]["Tables"]["groups"]["Update"];
 type Params = { params: { groupId: string } };
 
 export async function GET(_req: Request, { params }: Params) {
@@ -46,9 +48,10 @@ export async function PUT(request: Request, { params }: Params) {
     );
   }
 
+  const updatePayload: GroupUpdate = parsed.data;
   const { data, error } = await supabase
     .from("groups")
-    .update(parsed.data)
+    .update(updatePayload as never)
     .eq("id", params.groupId)
     .eq("created_by", user.id)
     .select()

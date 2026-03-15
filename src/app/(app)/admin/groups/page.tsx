@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import {
   Table,
   TableBody,
@@ -11,14 +12,19 @@ import { formatDate } from "@/lib/utils/formatters";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+type GroupRow = Database["public"]["Tables"]["groups"]["Row"];
+type GroupWithMembers = GroupRow & { group_members: { count: number }[] };
+
 export const metadata = { title: "Manage Groups — TTLeave" };
 
 export default async function AdminGroupsPage() {
   const supabase = await createClient();
-  const { data: groups } = await supabase
+  const { data } = await supabase
     .from("groups")
     .select("*, group_members(count)")
     .order("created_at", { ascending: false });
+
+  const groups = (data ?? []) as GroupWithMembers[];
 
   return (
     <div className="container max-w-4xl py-6 px-4">
@@ -41,7 +47,7 @@ export default async function AdminGroupsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(groups ?? []).map((group) => (
+            {groups.map((group) => (
               <TableRow key={group.id}>
                 <TableCell>
                   <div>

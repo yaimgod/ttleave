@@ -6,6 +6,15 @@ import { Users } from "lucide-react";
 import Link from "next/link";
 import { JoinGroupButton } from "./JoinGroupButton";
 
+type InviteGroupPreview = { groups: { name: string } | null } | null;
+type InviteWithGroup = {
+  id: string;
+  group_id: string;
+  token: string;
+  groups: { id: string; name: string; description: string | null } | null;
+  [k: string]: unknown;
+} | null;
+
 export async function generateMetadata({
   params,
 }: {
@@ -17,7 +26,8 @@ export async function generateMetadata({
     .select("groups(name)")
     .eq("token", params.token)
     .single();
-  const name = (data?.groups as { name: string } | null)?.name ?? "a group";
+  const row = data as InviteGroupPreview;
+  const name = row?.groups?.name ?? "a group";
   return { title: `Join ${name} — TTLeave` };
 }
 
@@ -27,11 +37,13 @@ export default async function JoinPage({
   params: { token: string };
 }) {
   const serviceSupabase = await createServiceClient();
-  const { data: invite } = await serviceSupabase
+  const { data: inviteData } = await serviceSupabase
     .from("group_invites")
     .select("*, groups(id, name, description)")
     .eq("token", params.token)
     .single();
+
+  const invite = inviteData as InviteWithGroup;
 
   if (!invite) {
     return (

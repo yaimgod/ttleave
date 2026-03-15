@@ -1,8 +1,12 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { ChainVisualizer } from "@/components/countdown/ChainVisualizer";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+
+type EventChainRow = Database["public"]["Tables"]["event_chains"]["Row"];
+type ChainLink = Pick<EventChainRow, "successor_id" | "link_type" | "offset_days"> | null;
 
 export const metadata = { title: "Event Chain — TTLeave" };
 
@@ -28,24 +32,28 @@ export default async function ChainPage({
   let currentId: string | null = params.chainId;
 
   while (currentId) {
-    const { data: event } = await supabase
+    const { data: eventData } = await supabase
       .from("events")
       .select("id, title, target_date, color, is_completed")
       .eq("id", currentId)
       .single();
 
-    if (!event) break;
+    if (!eventData) break;
 
-    const { data: link } = await supabase
+    const event = eventData as { id: string; title: string; target_date: string; color: string; is_completed: boolean };
+
+    const { data: linkData } = await supabase
       .from("event_chains")
       .select("successor_id, link_type, offset_days")
       .eq("predecessor_id", currentId)
       .single();
 
+    const link: ChainLink = linkData as ChainLink;
+
     chain.push({
       ...event,
       link_type: link?.link_type,
-      offset_days: link?.offset_days,
+      offset_days: link?.offset_days ?? undefined,
     });
 
     currentId = link?.successor_id ?? null;

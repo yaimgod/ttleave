@@ -23,8 +23,9 @@ export function useGroupMembership(groupId?: string) {
       .eq("user_id", user.id)
       .single()
       .then(({ data }) => {
-        setIsMember(!!data);
-        setIsOwner(data?.role === "owner");
+        const row = data as { role: string } | null;
+        setIsMember(!!row);
+        setIsOwner(row?.role === "owner");
         setLoading(false);
       });
   }, [user, groupId]);

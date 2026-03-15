@@ -4,7 +4,19 @@ import { useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { createClient } from "@/lib/supabase/client";
+import type { Database } from "@/lib/supabase/types";
 import { queryKeys } from "@/lib/query/keys";
+
+type EventCommentInsert = Database["public"]["Tables"]["event_comments"]["Insert"];
+type CommentWithProfile = {
+  id: string;
+  event_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  profiles: { full_name: string | null; avatar_url: string | null } | null;
+};
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,14 +37,14 @@ export function CommentFeed({ eventId, canComment }: CommentFeedProps) {
 
   const { data: comments, isLoading } = useQuery({
     queryKey: queryKeys.comments.byEvent(eventId),
-    queryFn: async () => {
+    queryFn: async (): Promise<CommentWithProfile[]> => {
       const supabase = createClient();
       const { data } = await supabase
         .from("event_comments")
         .select("*, profiles(full_name, avatar_url)")
         .eq("event_id", eventId)
         .order("created_at", { ascending: true });
-      return data ?? [];
+      return (data ?? []) as CommentWithProfile[];
     },
   });
 
@@ -68,11 +80,9 @@ export function CommentFeed({ eventId, canComment }: CommentFeedProps) {
     mutationFn: async ({ content }: { content: string }) => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      const { error } = await supabase.from("event_comments").insert({
-        event_id: eventId,
-        author_id: user!.id,
-        content,
-      });
+      if (!user) throw new Error("Unauthorized");
+      const payload: EventCommentInsert = { event_id: eventId, author_id: user.id, content };
+      const { error } = await supabase.from("event_comments").insert(payload as never);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -104,10 +114,7 @@ export function CommentFeed({ eventId, canComment }: CommentFeedProps) {
         ) : (
           <div className="space-y-4">
             {comments?.map((comment) => {
-              const profile = comment.profiles as {
-                full_name: string | null;
-                avatar_url: string | null;
-              } | null;
+              const profile = comment.profiles;
               const initials = profile?.full_name
                 ?.split(" ")
                 .map((n) => n[0])

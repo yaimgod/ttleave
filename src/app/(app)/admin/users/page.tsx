@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import {
   Table,
   TableBody,
@@ -13,14 +14,18 @@ import { formatDate } from "@/lib/utils/formatters";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
+
 export const metadata = { title: "Manage Users — TTLeave" };
 
 export default async function AdminUsersPage() {
   const supabase = await createClient();
-  const { data: users } = await supabase
+  const { data } = await supabase
     .from("profiles")
     .select("*")
     .order("created_at", { ascending: false });
+
+  const users = (data ?? []) as ProfileRow[];
 
   return (
     <div className="container max-w-4xl py-6 px-4">
@@ -43,7 +48,7 @@ export default async function AdminUsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(users ?? []).map((user) => {
+            {users.map((user) => {
               const initials = user.full_name
                 ?.split(" ")
                 .map((n: string) => n[0])

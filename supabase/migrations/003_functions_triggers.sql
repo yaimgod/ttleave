@@ -16,7 +16,7 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
@@ -29,7 +29,7 @@ BEGIN
   NEW.updated_at = now();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 CREATE TRIGGER profiles_updated_at
   BEFORE UPDATE ON public.profiles
@@ -52,7 +52,7 @@ BEGIN
   ON CONFLICT DO NOTHING;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE TRIGGER on_group_created
   AFTER INSERT ON public.groups
@@ -106,7 +106,7 @@ BEGIN
     END IF;
   END LOOP;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- Enable Realtime on key tables (run after migrations in Supabase dashboard,
 -- or via: ALTER PUBLICATION supabase_realtime ADD TABLE ...)

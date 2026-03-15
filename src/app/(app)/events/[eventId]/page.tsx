@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { CountdownTimer } from "@/components/countdown/CountdownTimer";
 import { CommentFeed } from "@/components/events/CommentFeed";
 import { MutableEventInput } from "@/components/events/MutableEventInput";
@@ -20,6 +21,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
+type EventWithGroup = EventRow & { groups: { name: string } | null };
+
 export async function generateMetadata({
   params,
 }: {
@@ -31,7 +35,8 @@ export async function generateMetadata({
     .select("title")
     .eq("id", params.eventId)
     .single();
-  return { title: data?.title ?? "Event" };
+  const row = data as { title?: string } | null;
+  return { title: row?.title ?? "Event" };
 }
 
 export default async function EventDetailPage({
@@ -44,15 +49,19 @@ export default async function EventDetailPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: event } = await supabase
+  if (!user) notFound();
+
+  const { data: eventData } = await supabase
     .from("events")
     .select("*, groups(name)")
     .eq("id", params.eventId)
     .single();
 
-  if (!event) notFound();
+  if (!eventData) notFound();
 
-  const isOwner = event.owner_id === user!.id;
+  const event = eventData as EventWithGroup;
+
+  const isOwner = event.owner_id === user.id;
   const canComment =
     isOwner ||
     event.member_permissions === "view_comment" ||

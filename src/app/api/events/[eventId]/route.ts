@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { updateEventSchema } from "@/lib/validations/event.schema";
 import { isValidUUID } from "@/lib/utils/uuid";
 
+type EventUpdate = Database["public"]["Tables"]["events"]["Update"];
 type Params = { params: { eventId: string } };
 
 export async function GET(_req: Request, { params }: Params) {
@@ -46,9 +48,10 @@ export async function PUT(request: Request, { params }: Params) {
     );
   }
 
+  const updatePayload: EventUpdate = { ...parsed.data, updated_at: new Date().toISOString() };
   const { data, error } = await supabase
     .from("events")
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update(updatePayload as never)
     .eq("id", params.eventId)
     .eq("owner_id", user.id) // enforce ownership via query
     .select()
@@ -90,9 +93,10 @@ export async function PATCH(request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const patchPayload: EventUpdate = { is_completed: true, updated_at: new Date().toISOString() };
   const { data: event, error: fetchError } = await supabase
     .from("events")
-    .update({ is_completed: true, updated_at: new Date().toISOString() })
+    .update(patchPayload as never)
     .eq("id", params.eventId)
     .eq("owner_id", user.id)
     .select()
@@ -100,7 +104,8 @@ export async function PATCH(request: Request, { params }: Params) {
 
   if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 });
 
-  // Activate linked successors via DB function
+  // Activate linked successors via DB function (RPC not in generated types)
+  // @ts-expect-error — activate_chain_successors RPC exists in DB but not in generated Database type
   await supabase.rpc("activate_chain_successors", { p_event_id: params.eventId });
 
   return NextResponse.json(event);

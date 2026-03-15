@@ -51,8 +51,8 @@ exp    = now + (10 * 365 * 24 * 3600)  # 10 years
 def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
-header  = b64url(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
-payload = b64url(json.dumps({"role": role, "iss": "supabase", "iat": now, "exp": exp}).encode())
+header  = b64url(json.dumps({"alg":"HS256","typ":"JWT"}, separators=(',',':')).encode())
+payload = b64url(json.dumps({"role":role,"iss":"supabase","iat":now,"exp":exp}, separators=(',',':')).encode())
 msg     = f"{header}.{payload}".encode()
 sig     = b64url(hmac.new(secret, msg, hashlib.sha256).digest())
 

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { createGroupSchema } from "@/lib/validations/group.schema";
+
+type GroupInsert = Database["public"]["Tables"]["groups"]["Insert"];
 
 export async function GET() {
   const supabase = await createClient();
@@ -35,9 +38,10 @@ export async function POST(request: Request) {
     );
   }
 
+  const insertPayload: GroupInsert = { ...parsed.data, created_by: user.id };
   const { data, error } = await supabase
     .from("groups")
-    .insert({ ...parsed.data, created_by: user.id })
+    .insert(insertPayload as never)
     .select()
     .single();
 

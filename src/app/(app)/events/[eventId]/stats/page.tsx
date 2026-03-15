@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import {
   Card,
   CardContent,
@@ -7,20 +8,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { StatsCard } from "@/components/shared/StatsCard";
+import { StatsChart } from "@/components/events/StatsChart";
 import { Badge } from "@/components/ui/badge";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 import { ArrowLeft, TrendingDown, CalendarMinus, Zap } from "lucide-react";
 import Link from "next/link";
 import { formatDate, formatShortDate } from "@/lib/utils/formatters";
-import { differenceInDays, parseISO } from "date-fns";
+
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
+type DateAdjustmentRow = Database["public"]["Tables"]["date_adjustments"]["Row"];
 
 export const metadata = { title: "Event Stats — TTLeave" };
 
@@ -34,32 +29,27 @@ export default async function EventStatsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: event } = await supabase
+  if (!user) notFound();
+
+  const { data: eventData } = await supabase
     .from("events")
     .select("*")
     .eq("id", params.eventId)
-    .eq("owner_id", user!.id)
+    .eq("owner_id", user.id)
     .single();
 
+  const event = eventData as EventRow | null;
   if (!event || event.event_type !== "mutable") notFound();
 
-  const { data: adjustments } = await supabase
+  const { data: adjustmentsData } = await supabase
     .from("date_adjustments")
     .select("*")
     .eq("event_id", params.eventId)
     .order("created_at", { ascending: true });
 
-  const allAdj = adjustments ?? [];
+  const allAdj = (adjustmentsData ?? []) as DateAdjustmentRow[];
 
   const totalDaysReduced = allAdj.reduce((sum, a) => sum + a.days_chosen, 0);
-  const originalDuration = differenceInDays(
-    parseISO(event.target_date),
-    parseISO(event.created_at)
-  );
-  const currentDuration = differenceInDays(
-    parseISO(event.target_date),
-    new Date()
-  );
 
   // Build drift chart data (running total of days reduced over time)
   let running = 0;
@@ -125,26 +115,7 @@ export default async function EventStatsPage({
             <CardTitle className="text-base">Cumulative days advanced</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11 }}
-                  className="text-muted-foreground"
-                />
-                <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" />
-                <Tooltip />
-                <Area
-                  type="monotone"
-                  dataKey="daysReduced"
-                  name="Days advanced"
-                  stroke="#6366f1"
-                  fill="#6366f120"
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <StatsChart data={chartData} />
           </CardContent>
         </Card>
       )}

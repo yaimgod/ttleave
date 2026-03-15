@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { StatsCard } from "@/components/shared/StatsCard";
-import { Users, Timer, CalendarRange, Layers } from "lucide-react";
+import { Users, Timer, Layers } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 

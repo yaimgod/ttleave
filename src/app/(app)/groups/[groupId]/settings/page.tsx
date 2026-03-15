@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import {
@@ -26,7 +25,6 @@ interface InviteData {
 
 export default function GroupSettingsPage() {
   const params = useParams<{ groupId: string }>();
-  const router = useRouter();
   const [invite, setInvite] = useState<InviteData | null>(null);
   const [loading, setLoading] = useState(false);
 

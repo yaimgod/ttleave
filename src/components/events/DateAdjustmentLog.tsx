@@ -2,11 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import type { Database } from "@/lib/supabase/types";
 import { queryKeys } from "@/lib/query/keys";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/utils/formatters";
+
+type DateAdjustmentRow = Database["public"]["Tables"]["date_adjustments"]["Row"];
 
 interface DateAdjustmentLogProps {
   eventId: string;
@@ -15,14 +18,14 @@ interface DateAdjustmentLogProps {
 export function DateAdjustmentLog({ eventId }: DateAdjustmentLogProps) {
   const { data: adjustments, isLoading } = useQuery({
     queryKey: queryKeys.adjustments.byEvent(eventId),
-    queryFn: async () => {
+    queryFn: async (): Promise<DateAdjustmentRow[]> => {
       const supabase = createClient();
       const { data } = await supabase
         .from("date_adjustments")
         .select("*")
         .eq("event_id", eventId)
         .order("created_at", { ascending: false });
-      return data ?? [];
+      return (data ?? []) as DateAdjustmentRow[];
     },
   });
 

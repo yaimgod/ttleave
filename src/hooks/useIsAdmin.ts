@@ -22,7 +22,8 @@ export function useIsAdmin() {
       .eq("id", user.id)
       .single()
       .then(({ data }) => {
-        setIsAdmin(data?.role === "admin");
+        const row = data as { role: string } | null;
+        setIsAdmin(row?.role === "admin");
         setLoading(false);
       });
   }, [user]);

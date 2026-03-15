@@ -6,6 +6,11 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Users, Plus } from "lucide-react";
 import Link from "next/link";
 
+type MembershipWithGroup = {
+  role: string;
+  groups: { id: string; name: string; description: string | null; created_at: string } | null;
+};
+
 export const metadata = { title: "Groups — TTLeave" };
 
 export default async function GroupsPage() {
@@ -14,16 +19,21 @@ export default async function GroupsPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: memberships } = await supabase
+  if (!user) return null;
+
+  const { data: membershipsData } = await supabase
     .from("group_members")
     .select("role, groups(id, name, description, created_at)")
-    .eq("user_id", user!.id)
+    .eq("user_id", user.id)
     .order("joined_at", { ascending: false });
 
-  const groups = (memberships ?? []).map((m) => ({
-    ...(m.groups as { id: string; name: string; description: string | null; created_at: string }),
-    memberRole: m.role,
-  }));
+  const memberships = (membershipsData ?? []) as MembershipWithGroup[];
+  const groups = memberships
+    .filter((m) => m.groups)
+    .map((m) => ({
+      ...m.groups!,
+      memberRole: m.role,
+    }));
 
   return (
     <div className="container max-w-4xl py-6 px-4">

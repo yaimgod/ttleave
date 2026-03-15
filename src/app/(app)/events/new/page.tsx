@@ -3,6 +3,8 @@ import { EventForm } from "@/components/events/EventForm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+type GroupMembershipWithGroup = { groups: { id: string; name: string } | null };
+
 export const metadata = { title: "New Event — TTLeave" };
 
 export default async function NewEventPage() {
@@ -11,13 +13,16 @@ export default async function NewEventPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: groupMemberships } = await supabase
+  if (!user) return null;
+
+  const { data: groupMembershipsData } = await supabase
     .from("group_members")
     .select("groups(id, name)")
-    .eq("user_id", user!.id);
+    .eq("user_id", user.id);
 
-  const groups = (groupMemberships ?? [])
-    .map((m) => m.groups as { id: string; name: string } | null)
+  const groupMemberships = (groupMembershipsData ?? []) as GroupMembershipWithGroup[];
+  const groups = groupMemberships
+    .map((m) => m.groups)
     .filter(Boolean) as Array<{ id: string; name: string }>;
 
   return (

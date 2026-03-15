@@ -19,7 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { scoreToBucketLabel } from "@/lib/nlp/suggester";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/types";
 import { CountdownCard } from "@/components/countdown/CountdownCard";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,14 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Settings, Timer, Users } from "lucide-react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+
+type GroupRow = Database["public"]["Tables"]["groups"]["Row"];
+type GroupMemberWithProfile = {
+  role: string;
+  profiles: { id: string; full_name: string | null; email: string; avatar_url: string | null } | null;
+};
+type GroupWithMembers = GroupRow & { group_members: GroupMemberWithProfile[] };
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
 export async function generateMetadata({
   params,
@@ -21,7 +30,8 @@ export async function generateMetadata({
     .select("name")
     .eq("id", params.groupId)
     .single();
-  return { title: data?.name ?? "Group" };
+  const row = data as { name?: string } | null;
+  return { title: row?.name ?? "Group" };
 }
 
 export default async function GroupDetailPage({
@@ -34,7 +44,9 @@ export default async function GroupDetailPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: group } = await supabase
+  if (!user) notFound();
+
+  const { data: groupData } = await supabase
     .from("groups")
     .select(
       "*, group_members(role, profiles(id, full_name, email, avatar_url))"
@@ -42,23 +54,24 @@ export default async function GroupDetailPage({
     .eq("id", params.groupId)
     .single();
 
-  if (!group) notFound();
+  if (!groupData) notFound();
 
-  const userMembership = (group.group_members as Array<{
-    role: string;
-    profiles: { id: string } | null;
-  }>).find((m) => m.profiles?.id === user!.id);
+  const group = groupData as GroupWithMembers;
+
+  const userMembership = group.group_members.find((m) => m.profiles?.id === user.id);
 
   if (!userMembership) notFound();
 
   const isOwner = userMembership.role === "owner";
 
-  const { data: events } = await supabase
+  const { data: eventsData } = await supabase
     .from("events")
     .select("*")
     .eq("group_id", params.groupId)
     .eq("is_completed", false)
     .order("target_date");
+
+  const events = (eventsData ?? []) as EventRow[];
 
   const members = group.group_members as Array<{
     role: string;

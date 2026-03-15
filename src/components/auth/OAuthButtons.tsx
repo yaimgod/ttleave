@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { Github } from "lucide-react";
 
 function GoogleIcon() {
   return (
@@ -43,33 +42,14 @@ export function OAuthButtons({ redirectTo = "/dashboard" }: OAuthButtonsProps) {
     });
   };
 
-  const signInWithGitHub = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "github",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${redirectTo}`,
-      },
-    });
-  };
-
   return (
-    <div className="flex flex-col gap-2">
-      <Button
-        variant="outline"
-        className="w-full gap-2"
-        onClick={signInWithGoogle}
-      >
-        <GoogleIcon />
-        Continue with Google
-      </Button>
-      <Button
-        variant="outline"
-        className="w-full gap-2"
-        onClick={signInWithGitHub}
-      >
-        <Github className="h-4 w-4" />
-        Continue with GitHub
-      </Button>
-    </div>
+    <Button
+      variant="outline"
+      className="w-full gap-2"
+      onClick={signInWithGoogle}
+    >
+      <GoogleIcon />
+      Continue with Google
+    </Button>
   );
 }

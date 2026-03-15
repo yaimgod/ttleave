@@ -6,9 +6,7 @@ import {
   LayoutDashboard,
   CalendarDays,
   List,
-  Link2,
   Users,
-  Settings,
   Shield,
   Timer,
 } from "lucide-react";
