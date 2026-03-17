@@ -10,6 +10,15 @@ const pwaConfig = withPWA({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // Limit webpack parallelism on low-RAM VPS builds.
+  // Default is CPU count (often 4+), each worker uses ~300-400 MB.
+  // Setting to 1 serialises compilation: ~700 MB peak instead of ~2 GB.
+  webpack: (config, { isServer }) => {
+    if (process.env.WEBPACK_SINGLE_THREADED === "1") {
+      config.parallelism = 1;
+    }
+    return config;
+  },
   images: {
     remotePatterns: [
       // Self-hosted Supabase Storage served through Kong (https)
