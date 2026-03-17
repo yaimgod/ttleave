@@ -1,23 +1,33 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# TTLeave — Fully Self-Hosted Stack
+# TTLeave — Docker Compose (profiles-based, single file)
 #
-# Includes Supabase (PostgreSQL, GoTrue Auth, PostgREST, Realtime, Storage,
-# Imgproxy, pg-meta, Kong API Gateway, Studio) + Next.js app.
+# TWO MODES:
 #
-# BEFORE FIRST RUN:
+#   App only  (Coolify / external Supabase resource):
+#     docker compose up -d
+#     → starts: app, nlp
+#     → Supabase runs separately; set SUPABASE_URL in env to reach Kong
+#
+#   Full local stack  (app + self-hosted Supabase):
+#     docker compose --profile supabase up -d
+#     → starts: app, nlp, db, migrate, kong, auth, rest, realtime,
+#               storage, imgproxy, meta, studio
+#     → SUPABASE_URL defaults to http://kong:8000 (no override needed)
+#
+# BEFORE FIRST RUN (full stack):
 #   1. cp .env.example .env
 #   2. bash scripts/generate-secrets.sh  → paste output into .env
 #   3. Fill in SMTP_* and URL vars in .env
-#   4. If db previously failed to start (e.g. "schema auth does not exist"), run:
-#      docker compose down -v   # removes volumes so db can re-initialize
-#   5. docker compose up -d
-#   Role passwords are set by the db container on startup (scripts/db-setpass.sh).
+#   4. If db previously failed to start (e.g. "schema auth does not exist"):
+#      docker compose --profile supabase down -v
+#   5. docker compose --profile supabase up -d
 #
 # COOLIFY DEPLOYMENT:
-#   - Use "Docker Compose" deployment type in Coolify
+#   - Use "Docker Compose" deployment type (no --profile flag → app+nlp only)
 #   - Set all env vars in Coolify's Environment Variables panel
-#   - Kong (port 8001 by default) and the app (port 3000) are the two entry points
-#   - Use Coolify's reverse proxy / Let's Encrypt for TLS in front of port 3000
+#   - Set SUPABASE_URL to your Kong URL (e.g. http://kong:8000 if on same network,
+#     or https://api.masteroradmin.space if reaching it externally)
+#   - App proxy: port 3000 → masteroradmin.space
 # ══════════════════════════════════════════════════════════════════════════════
 
 networks:
@@ -32,12 +42,78 @@ volumes:
 
 services:
 
+  # ── NLP SIDECAR (Python FastAPI + BERT sentiment) ────────────────────────────
+  # Multilingual sentiment model: nlptown/bert-base-multilingual-uncased-sentiment
+  # Exposes POST /score → { score: 0-1 float, label: string }
+  # Model weights baked into image + persisted in nlp-model-cache volume.
+  # No profile → always starts regardless of mode.
+  nlp:
+    image: yaimgod/ttleave-nlp:latest
+    restart: unless-stopped
+    networks:
+      - supabase_net
+    volumes:
+      - nlp-model-cache:/app/.cache/huggingface
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s  # model deserialization takes ~20-30s on first start
+
+  # ── NEXT.JS APP ───────────────────────────────────────────────────────────────
+  # NEXT_PUBLIC_SUPABASE_URL = browser-facing Kong URL (baked into client bundle).
+  # SUPABASE_URL             = server-side Kong URL (SSR / middleware / API routes).
+  #   Full stack:  defaults to http://kong:8000 (internal Docker network)
+  #   App-only:    set SUPABASE_URL in env to your Kong external/internal URL
+  # No profile → always starts regardless of mode.
+  app:
+    image: yaimgod/ttleave-app:latest
+    ports:
+      - "3000:3000"
+    networks:
+      - supabase_net
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${SUPABASE_URL:-http://kong:8000}
+      NLP_SERVICE_URL: http://nlp:8080
+    depends_on:
+      nlp:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:3000/api/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # SUPABASE SERVICES
+  # Only started when using: docker compose --profile supabase up -d
+  # ════════════════════════════════════════════════════════════════════════════
+
   # ── POSTGRESQL ──────────────────────────────────────────────────────────────
-  # supabase/postgres ships with the auth schema, roles (anon, authenticator,
-  # supabase_admin, etc.) and extensions. We let it use its own entrypoint.
-  # POSTGRES_PASSWORD sets the superuser password; the image also sets it on
-  # the reserved Supabase roles via its own init scripts.
   db:
+    profiles: [supabase]
     image: supabase/postgres:15.8.1.085
     restart: unless-stopped
     networks:
@@ -68,12 +144,9 @@ services:
       - log_min_messages=fatal
 
   # ── MIGRATIONS ───────────────────────────────────────────────────────────────
-  # One-shot service that runs after db is healthy:
-  #   1. Sets POSTGRES_PASSWORD on the Supabase reserved roles so downstream
-  #      services (auth, rest, storage, realtime) can authenticate via TCP.
-  #      Must connect as supabase_admin (the actual superuser in supabase/postgres).
-  #   2. Applies the four app SQL migration files (idempotent).
+  # One-shot: sets role passwords + applies SQL migrations idempotently.
   migrate:
+    profiles: [supabase]
     image: supabase/postgres:15.8.1.085
     restart: "no"
     networks:
@@ -91,9 +164,6 @@ services:
         until pg_isready -h db -U supabase_admin -d postgres 2>/dev/null; do sleep 2; done
         echo "DB ready."
 
-        # supabase/postgres sets POSTGRES_PASSWORD on the supabase_admin role.
-        # Connect as supabase_admin (the true superuser) to set passwords on
-        # the other reserved roles so PostgREST, GoTrue and Storage can connect.
         ESCAPED=$(printf '%s' "$$POSTGRES_PASSWORD" | sed "s/'/''/g")
         psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" <<SQL
           ALTER ROLE supabase_auth_admin    WITH PASSWORD '$$ESCAPED';
@@ -102,7 +172,6 @@ services:
         SQL
         echo "Role passwords set."
 
-        # Apply base schema migrations (skip if profiles table already exists).
         if psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -tAc \
           "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='profiles'" \
           | grep -q 1; then
@@ -119,14 +188,11 @@ services:
           done
           echo "Base migrations applied."
 
-          # Create _realtime schema so the Realtime service can run its own migrations.
           psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -c \
             "CREATE SCHEMA IF NOT EXISTS _realtime; GRANT ALL ON SCHEMA _realtime TO supabase_admin;"
           echo "_realtime schema ready."
         fi
 
-        # Always run incremental migrations (idempotent via IF NOT EXISTS / IF EXISTS).
-        # These run on EVERY container start to apply new columns/changes to existing DBs.
         echo "Applying incremental migrations..."
         psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" \
           -f "/migrations/005_nlp_linear_regression.sql"
@@ -136,9 +202,8 @@ services:
         condition: service_healthy
 
   # ── KONG API GATEWAY ────────────────────────────────────────────────────────
-  # All Supabase client requests (REST, Auth, Realtime, Storage) flow through Kong.
-  # Kong uses declarative (DB-less) config from supabase/kong.yml.
   kong:
+    profiles: [supabase]
     image: kong:2.8.1
     restart: unless-stopped
     networks:
@@ -148,8 +213,6 @@ services:
     volumes:
       - ./supabase/kong.yml:/home/kong/kong.yml.tpl:ro
       - ./supabase/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
-    # kong-entrypoint.sh uses perl to substitute ${VAR} placeholders in kong.yml.tpl
-    # before Kong loads the config. Kong 2.x does NOT auto-expand env vars.
     entrypoint: ["/bin/bash", "/home/kong/kong-entrypoint.sh"]
     environment:
       KONG_DATABASE: "off"
@@ -174,6 +237,7 @@ services:
 
   # ── GOTRUE (AUTH) ───────────────────────────────────────────────────────────
   auth:
+    profiles: [supabase]
     image: supabase/gotrue:v2.186.0
     restart: unless-stopped
     networks:
@@ -211,12 +275,9 @@ services:
       GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
-
     depends_on:
       migrate:
         condition: service_completed_successfully
-      mailpit:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
       interval: 10s
@@ -224,31 +285,9 @@ services:
       retries: 10
       start_period: 20s
 
-  # ── MAILPIT (SMTP + Web UI for outbound email) ──────────────────────────────
-  # Catches all outgoing email from GoTrue and provides a web UI at port 8025.
-  # SMTP relay: mailpit:1025 (no auth, no TLS — internal only).
-  # On production: replace SMTP_HOST/PORT/USER/PASS in .env with your real provider
-  # and remove or comment out this service.
-  mailpit:
-    image: axllent/mailpit:latest
-    restart: unless-stopped
-    networks:
-      - supabase_net
-    ports:
-      - "127.0.0.1:8025:8025"   # Web UI — browse caught emails
-      - "127.0.0.1:1025:1025"   # SMTP intake (internal; not exposed publicly)
-    environment:
-      MP_MAX_MESSAGES: 500
-      MP_SMTP_AUTH_ACCEPT_ANY: 1
-      MP_SMTP_AUTH_ALLOW_INSECURE: 1
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8025/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── POSTGREST (REST API) ────────────────────────────────────────────────────
   rest:
+    profiles: [supabase]
     image: postgrest/postgrest:v14.5
     restart: unless-stopped
     networks:
@@ -277,6 +316,7 @@ services:
 
   # ── REALTIME ────────────────────────────────────────────────────────────────
   realtime:
+    profiles: [supabase]
     image: supabase/realtime:v2.76.5
     restart: unless-stopped
     networks:
@@ -303,7 +343,6 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      # Health endpoint requires JWT; use a simple TCP port check instead
       test: ["CMD", "sh", "-c", "curl -sf http://127.0.0.1:4000/ > /dev/null"]
       interval: 10s
       timeout: 5s
@@ -312,6 +351,7 @@ services:
 
   # ── STORAGE ─────────────────────────────────────────────────────────────────
   storage:
+    profiles: [supabase]
     image: supabase/storage-api:v1.37.8
     restart: unless-stopped
     networks:
@@ -355,6 +395,7 @@ services:
 
   # ── IMGPROXY ─────────────────────────────────────────────────────────────────
   imgproxy:
+    profiles: [supabase]
     image: darthsim/imgproxy:v3.30.1
     restart: unless-stopped
     networks:
@@ -373,6 +414,7 @@ services:
 
   # ── PG-META (database management API) ───────────────────────────────────────
   meta:
+    profiles: [supabase]
     image: supabase/postgres-meta:v0.95.2
     restart: unless-stopped
     networks:
@@ -389,17 +431,15 @@ services:
         condition: service_healthy
 
   # ── STUDIO (Supabase Dashboard UI) ───────────────────────────────────────────
-  # Bound to localhost only: access via SSH tunnel (e.g. ssh -L 3001:127.0.0.1:3001 user@vps)
-  # or via Kong at path / with basic-auth (DASHBOARD_USERNAME/PASSWORD). Not exposed on 0.0.0.0.
+  # Bound to localhost only: access via SSH tunnel or Kong basic-auth proxy.
   studio:
+    profiles: [supabase]
     image: supabase/studio:2026.02.16-sha-26c615c
     restart: unless-stopped
     networks:
       - supabase_net
     ports:
       - "127.0.0.1:3001:3000"
-    # Studio (Next.js) binds to its eth0 IP, not loopback. Use os.hostname() so
-    # the healthcheck resolves to the correct interface regardless of container IP.
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://'+require('os').hostname()+':3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s
@@ -425,79 +465,3 @@ services:
         condition: service_healthy
       meta:
         condition: service_started
-
-  # ── NLP SIDECAR (Python FastAPI + XLM-RoBERTa) ──────────────────────────────
-  # Multilingual sentiment model: cardiffnlp/twitter-xlm-roberta-base-sentiment
-  # Exposes POST /score → { score: 0-1 float, label: string }
-  # Model weights are baked into the image layer AND persisted in nlp-model-cache
-  # so they survive container restarts without re-downloading.
-  nlp:
-    build:
-      context: ./nlp-service
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    networks:
-      - supabase_net
-    volumes:
-      - nlp-model-cache:/app/.cache/huggingface
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
-        ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 60s  # model deserialization takes ~20-30s on first start
-
-  # ── NEXT.JS APP ───────────────────────────────────────────────────────────────
-  # NEXT_PUBLIC_SUPABASE_URL must be the URL the USER'S BROWSER sends requests to.
-  # This is the externally reachable Kong URL (e.g. https://api.yourdomain.com or
-  # http://your-vps-ip:8001). It is baked into the client JS bundle at build time.
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-    ports:
-      - "3000:3000"
-    networks:
-      - supabase_net
-    environment:
-      NODE_ENV: production
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      # Server-side URL — used by Next.js SSR/middleware to reach Kong inside Docker.
-      # NEXT_PUBLIC_SUPABASE_URL is the browser-facing URL (localhost or your domain)
-      # and is unreachable from inside the container. This internal URL is used instead.
-      SUPABASE_URL: http://kong:8000
-      # Internal URL for the Python NLP sidecar (only reachable from within Docker network)
-      NLP_SERVICE_URL: http://nlp:8080
-    depends_on:
-      kong:
-        condition: service_healthy
-      nlp:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:3000/api/health",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
