@@ -41,9 +41,6 @@ const nextConfig = {
       },
     ],
   },
-  experimental: {
-    serverComponentsExternalPackages: ["sentiment"],
-  },
 };
 
 export default pwaConfig(nextConfig);
