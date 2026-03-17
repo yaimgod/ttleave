@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/types";
 import { queryKeys } from "@/lib/query/keys";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/utils/formatters";
 
@@ -32,8 +31,8 @@ export function DateAdjustmentLog({ eventId }: DateAdjustmentLogProps) {
   if (isLoading) {
     return (
       <div className="space-y-2">
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-12 w-full" />
+        {[1, 2].map((i) => (
+          <Skeleton key={i} className="h-14 w-full" />
         ))}
       </div>
     );
@@ -41,37 +40,37 @@ export function DateAdjustmentLog({ eventId }: DateAdjustmentLogProps) {
 
   if (!adjustments?.length) {
     return (
-      <p className="text-sm text-muted-foreground">No date adjustments yet.</p>
+      <p className="text-sm text-muted-foreground py-2">
+        No date changes yet.
+      </p>
     );
   }
 
   return (
-    <ScrollArea className="h-48">
-      <div className="space-y-2 pr-3">
-        {adjustments.map((adj) => (
-          <div
-            key={adj.id}
-            className="flex items-start justify-between gap-3 rounded-md border p-2.5 text-sm"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="truncate text-xs text-muted-foreground mb-0.5">
-                {formatDate(adj.created_at)}
-              </p>
-              <p className="leading-snug line-clamp-2">{adj.reason_text}</p>
-            </div>
-            <div className="flex flex-col items-end gap-1 shrink-0">
-              <Badge variant="destructive" className="text-xs px-1.5 py-0">
-                -{adj.days_chosen}d
-              </Badge>
-              {adj.days_suggested !== adj.days_chosen && (
-                <span className="text-[10px] text-muted-foreground">
-                  suggested {adj.days_suggested}d
-                </span>
-              )}
-            </div>
+    <div className="space-y-2 overflow-y-auto max-h-72 pr-1">
+      {adjustments.map((adj) => (
+        <div
+          key={adj.id}
+          className="rounded-md border bg-muted/30 px-3 py-2 text-sm"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="leading-snug line-clamp-2 flex-1 min-w-0">
+              {adj.reason_text}
+            </p>
+            <Badge variant="destructive" className="text-xs px-1.5 shrink-0">
+              -{adj.days_chosen}d
+            </Badge>
           </div>
-        ))}
-      </div>
-    </ScrollArea>
+          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span>{formatDate(adj.created_at)}</span>
+            {adj.days_suggested !== adj.days_chosen && (
+              <span className="opacity-70">
+                · suggested {adj.days_suggested}d
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

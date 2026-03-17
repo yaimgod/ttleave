@@ -28,6 +28,7 @@ volumes:
   db-data:
   storage-data:
   db-config:
+  nlp-model-cache:
 
 services:
 
@@ -101,29 +102,35 @@ services:
         SQL
         echo "Role passwords set."
 
-        # Apply app schema migrations (idempotent: skip if profiles table exists).
+        # Apply base schema migrations (skip if profiles table already exists).
         if psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -tAc \
           "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='profiles'" \
           | grep -q 1; then
-          echo "Migrations already applied."
-          exit 0
+          echo "Base schema already applied, skipping 001-004."
+        else
+          echo "Applying base migrations..."
+          for f in \
+            /migrations/001_initial_schema.sql \
+            /migrations/002_rls_policies.sql \
+            /migrations/003_functions_triggers.sql \
+            /migrations/004_realtime_publication.sql; do
+            echo "  -> $$f"
+            psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -f "$$f"
+          done
+          echo "Base migrations applied."
+
+          # Create _realtime schema so the Realtime service can run its own migrations.
+          psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -c \
+            "CREATE SCHEMA IF NOT EXISTS _realtime; GRANT ALL ON SCHEMA _realtime TO supabase_admin;"
+          echo "_realtime schema ready."
         fi
 
-        echo "Applying migrations..."
-        for f in \
-          /migrations/001_initial_schema.sql \
-          /migrations/002_rls_policies.sql \
-          /migrations/003_functions_triggers.sql \
-          /migrations/004_realtime_publication.sql; do
-          echo "  -> $$f"
-          psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -f "$$f"
-        done
-        echo "All migrations applied."
-
-        # Create _realtime schema so the Realtime service can run its own migrations.
-        psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -c \
-          "CREATE SCHEMA IF NOT EXISTS _realtime; GRANT ALL ON SCHEMA _realtime TO supabase_admin;"
-        echo "_realtime schema ready."
+        # Always run incremental migrations (idempotent via IF NOT EXISTS / IF EXISTS).
+        # These run on EVERY container start to apply new columns/changes to existing DBs.
+        echo "Applying incremental migrations..."
+        psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" \
+          -f "/migrations/005_nlp_linear_regression.sql"
+        echo "All done."
     depends_on:
       db:
         condition: service_healthy
@@ -419,6 +426,33 @@ services:
       meta:
         condition: service_started
 
+  # ── NLP SIDECAR (Python FastAPI + XLM-RoBERTa) ──────────────────────────────
+  # Multilingual sentiment model: cardiffnlp/twitter-xlm-roberta-base-sentiment
+  # Exposes POST /score → { score: 0-1 float, label: string }
+  # Model weights are baked into the image layer AND persisted in nlp-model-cache
+  # so they survive container restarts without re-downloading.
+  nlp:
+    build:
+      context: ./nlp-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - supabase_net
+    volumes:
+      - nlp-model-cache:/app/.cache/huggingface
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s  # model deserialization takes ~20-30s on first start
+
   # ── NEXT.JS APP ───────────────────────────────────────────────────────────────
   # NEXT_PUBLIC_SUPABASE_URL must be the URL the USER'S BROWSER sends requests to.
   # This is the externally reachable Kong URL (e.g. https://api.yourdomain.com or
@@ -445,8 +479,12 @@ services:
       # NEXT_PUBLIC_SUPABASE_URL is the browser-facing URL (localhost or your domain)
       # and is unreachable from inside the container. This internal URL is used instead.
       SUPABASE_URL: http://kong:8000
+      # Internal URL for the Python NLP sidecar (only reachable from within Docker network)
+      NLP_SERVICE_URL: http://nlp:8080
     depends_on:
       kong:
+        condition: service_healthy
+      nlp:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

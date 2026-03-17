@@ -235,8 +235,9 @@ export type Database = {
           id: string;
           user_id: string;
           event_id: string | null;
-          ema_ratio: number;
-          ema_alpha: number;
+          lr_slope: number;
+          lr_intercept: number;
+          lr_learning_rate: number;
           sample_count: number;
           last_updated: string;
         };
@@ -244,14 +245,16 @@ export type Database = {
           id?: string;
           user_id: string;
           event_id?: string | null;
-          ema_ratio?: number;
-          ema_alpha?: number;
+          lr_slope?: number;
+          lr_intercept?: number;
+          lr_learning_rate?: number;
           sample_count?: number;
           last_updated?: string;
         };
         Update: {
-          ema_ratio?: number;
-          ema_alpha?: number;
+          lr_slope?: number;
+          lr_intercept?: number;
+          lr_learning_rate?: number;
           sample_count?: number;
           last_updated?: string;
         };

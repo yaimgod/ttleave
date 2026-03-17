@@ -92,7 +92,7 @@ export function CalendarView({
           selected: "bg-primary text-primary-foreground",
         }}
         components={{
-          Day: ({ day, modifiers }) => {
+          Day: ({ day }) => {
             const date = day.date;
             const key = format(date, "yyyy-MM-dd");
             const dayEvents = eventsByDay.get(key) ?? [];

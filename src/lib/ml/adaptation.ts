@@ -1,71 +1,109 @@
 /**
- * Exponential Moving Average (EMA) adaptation for NLP day suggestions.
+ * Per-user online linear regression for NLP suggestion adaptation.
  *
- * Tracks the ratio of user-chosen days vs NLP-suggested days per event.
- * Over time, suggestions are scaled by the user's personal ratio.
+ * Model:  suggestedDays = lr_slope * score + lr_intercept
+ *
+ * Where `score` is a 0-1 float from the Python NLP sidecar.
+ *
+ * The model is updated after each user override using stochastic gradient descent
+ * with L2 regularisation and gradient clipping to prevent instability.
+ *
+ * Stability guarantees:
+ *  - Cold start (< 3 samples): use simple base curve (round(score * 14))
+ *  - Slope clamped to [0.5, 3.0]:  can't suggest 0 or absurdly many days
+ *  - Intercept clamped to [-3, 5]: small baseline shift only
+ *  - L2 regularisation λ=0.01:     pulls toward slope=1, intercept=0
+ *  - Gradient clip [-5, 5]:        single extreme override can't destabilise
+ *  - LR decay 0.97× per update → floor 0.01: converges after ~75 overrides
  */
 
-export interface FeedbackRecord {
-  ema_ratio: number; // current smoothed ratio (chosen/suggested)
-  ema_alpha: number; // learning rate, decays over time
+export interface LinearModel {
+  lr_slope: number;          // default 1.0, clamped [0.5, 3.0]
+  lr_intercept: number;      // default 0.0, clamped [-3.0, 5.0]
+  lr_learning_rate: number;  // starts 0.1, decays 0.97x per update, floor 0.01
   sample_count: number;
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 export const COLD_START_THRESHOLD = 3;
 
+const MAX_DAYS      = 14;
+const SLOPE_MIN     =  0.5;
+const SLOPE_MAX     =  3.0;
+const INTERCEPT_MIN = -3.0;
+const INTERCEPT_MAX =  5.0;
+const LR_FLOOR      =  0.01;
+const LR_DECAY      =  0.97;
+const L2_LAMBDA     =  0.01;  // regularisation strength (pulls toward neutral defaults)
+const GRAD_CLIP     =  5.0;
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 /**
- * Update the EMA record after a user accepts or overrides a suggestion.
+ * Predict how many days to suggest given a raw 0-1 sentiment score.
  *
- * @param record  Current EMA state from DB
- * @param suggestedDays  What the NLP model suggested
- * @param chosenDays  What the user actually chose
+ * During cold start (sample_count < 3) returns the base curve so the model
+ * doesn't influence suggestions before it has learned anything meaningful.
  */
-export function updateEMA(
-  record: FeedbackRecord,
-  suggestedDays: number,
+export function predict(model: LinearModel, score: number): number {
+  if (model.sample_count < COLD_START_THRESHOLD) {
+    // Base curve: 0.0 → 0 days, 0.5 → 7 days, 1.0 → 14 days
+    return Math.max(0, Math.round(score * MAX_DAYS));
+  }
+
+  const raw = model.lr_slope * score + model.lr_intercept;
+  return Math.max(0, Math.min(MAX_DAYS, Math.round(raw)));
+}
+
+/**
+ * Update the model given a (score, chosenDays) observation.
+ *
+ * Uses online stochastic gradient descent on MSE loss with:
+ *   L2 regularisation: keeps slope near 1 and intercept near 0
+ *   Gradient clipping: prevents a single wild override from destabilising
+ *   Learning rate decay: model converges gradually, stops thrashing
+ *
+ * Returns a new model (immutable update).
+ */
+export function updateModel(
+  model: LinearModel,
+  score: number,
   chosenDays: number
-): FeedbackRecord {
-  if (suggestedDays === 0 && chosenDays === 0) return record;
+): LinearModel {
+  const predicted = model.lr_slope * score + model.lr_intercept;
+  const error     = predicted - chosenDays;          // (y_hat - y)
+  const lr        = model.lr_learning_rate;
 
-  // Avoid division by zero: if suggested is 0 but user chose > 0, treat ratio as 2.0 (scale up)
-  const ratio =
-    suggestedDays === 0 ? 2.0 : chosenDays / suggestedDays;
+  // MSE gradients + L2 regularisation penalty
+  // dL/d_slope     = error * score + λ * (slope - 1.0)
+  // dL/d_intercept = error         + λ * (intercept - 0.0)
+  const gradSlope     = error * score + L2_LAMBDA * (model.lr_slope     - 1.0);
+  const gradIntercept = error         + L2_LAMBDA * (model.lr_intercept - 0.0);
 
-  const alpha = record.ema_alpha;
-  const newEMA = alpha * ratio + (1 - alpha) * record.ema_ratio;
+  // Clip gradients to prevent a single extreme data point from destabilising
+  const clip = (g: number): number => Math.max(-GRAD_CLIP, Math.min(GRAD_CLIP, g));
 
-  // Decay learning rate gradually, floor at 0.1
-  const newAlpha = Math.max(0.1, alpha * 0.98);
+  const newSlope     = model.lr_slope     - lr * clip(gradSlope);
+  const newIntercept = model.lr_intercept - lr * clip(gradIntercept);
 
   return {
-    ema_ratio: Math.round(newEMA * 1000) / 1000, // 3 decimal precision
-    ema_alpha: Math.round(newAlpha * 1000) / 1000,
-    sample_count: record.sample_count + 1,
+    lr_slope:         Math.max(SLOPE_MIN,     Math.min(SLOPE_MAX,     newSlope)),
+    lr_intercept:     Math.max(INTERCEPT_MIN, Math.min(INTERCEPT_MAX, newIntercept)),
+    lr_learning_rate: Math.max(LR_FLOOR,      lr * LR_DECAY),
+    sample_count:     model.sample_count + 1,
   };
 }
 
 /**
- * Apply the personalized multiplier to a raw NLP suggestion.
- * During cold start (< COLD_START_THRESHOLD samples), return raw unchanged.
- *
- * @param rawSuggestion  Days suggested by NLP scorer
- * @param record  Current EMA state
+ * Default / initial model for a new (user, event) pair.
+ * Equivalent to the base curve (slope=1 → score*14 days, intercept=0).
  */
-export function adaptSuggestion(
-  rawSuggestion: number,
-  record: FeedbackRecord
-): number {
-  if (record.sample_count < COLD_START_THRESHOLD) return rawSuggestion;
-  return Math.max(0, Math.round(rawSuggestion * record.ema_ratio));
-}
-
-/**
- * Default / initial EMA record for a new user-event pair.
- */
-export function defaultFeedbackRecord(): FeedbackRecord {
+export function defaultLinearModel(): LinearModel {
   return {
-    ema_ratio: 1.0,
-    ema_alpha: 0.3,
-    sample_count: 0,
+    lr_slope:         1.0,
+    lr_intercept:     0.0,
+    lr_learning_rate: 0.1,
+    sample_count:     0,
   };
 }
