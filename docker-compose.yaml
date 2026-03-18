@@ -37,22 +37,22 @@ volumes:
   db-data:
   storage-data:
   db-config:
-  nlp-model-cache:
 
 services:
 
   # ── NLP SIDECAR (Python FastAPI + BERT sentiment) ────────────────────────────
   # Multilingual sentiment model: nlptown/bert-base-multilingual-uncased-sentiment
   # Exposes POST /score → { score: 0-1 float, label: string }
-  # Model weights baked into image + persisted in nlp-model-cache volume.
-  # No profile → always starts regardless of mode.
+  # Model weights are fully baked into the image at build time (see nlp-service/Dockerfile).
+  # No volume needed — the image is self-contained. No profile → always starts.
   nlp:
+    build:
+      context: ./nlp-service
+      dockerfile: Dockerfile
     image: yaimgod/ttleave-nlp:latest
     restart: unless-stopped
     networks:
       - supabase_net
-    volumes:
-      - nlp-model-cache:/app/.cache/huggingface
     healthcheck:
       test:
         [
@@ -67,13 +67,19 @@ services:
       start_period: 60s  # model deserialization takes ~20-30s on first start
 
   # ── NEXT.JS APP ───────────────────────────────────────────────────────────────
-  # NEXT_PUBLIC_SUPABASE_URL = browser-facing Kong URL (baked into client bundle).
-  # SUPABASE_URL             = server-side Kong URL (SSR / middleware / API routes).
-  #   Hardcoded to http://kong:8000 (Docker-internal hostname). Works for both
-  #   local full-stack and Coolify — join the Supabase resource network in Coolify
-  #   so the kong container is reachable by hostname from this service.
+  # NEXT_PUBLIC_* vars must be baked into the client bundle at build time (ARG).
+  # SUPABASE_URL (server-side) is hardcoded to http://kong:8000 — works for both
+  # local full-stack and Coolify (join the Supabase resource network so kong
+  # is reachable by hostname from inside the container).
   # No profile → always starts regardless of mode.
   app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
     image: yaimgod/ttleave-app:latest
     ports:
       - "3000:3000"
