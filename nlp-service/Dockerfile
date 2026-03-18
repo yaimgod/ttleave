@@ -37,6 +37,9 @@ RUN arch="$(uname -m)" && \
 #   - Works on ARM64 and x86_64 without extra deps
 #   - ~680 MB model file
 ENV HF_HOME=/app/.cache/huggingface
+# Suppress FutureWarning from transformers calling hf_hub_download(resume_download=True)
+# internally — deprecated in huggingface_hub but not yet fixed in transformers 4.40.x.
+ENV PYTHONWARNINGS="ignore::FutureWarning"
 
 RUN python - <<'PYEOF'
 from transformers import pipeline

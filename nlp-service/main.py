@@ -21,6 +21,11 @@ Examples (approximate):
 """
 
 from __future__ import annotations
+import warnings
+# transformers 4.40.x internally calls hf_hub_download(resume_download=True),
+# a deprecated kwarg in huggingface_hub. Suppress until transformers is upgraded.
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, field_validator
 from transformers import pipeline
