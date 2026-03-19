@@ -243,7 +243,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
             ) : (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-medium">
-                  {preview.suggestedDays > 0 ? "Bring closer:" : "Push back:"}
+                  {preview.suggestedDays > 0 ? "Bring closer (you're happy 😊):" : "Push further (need more time 😤):"}
                 </span>
 
                 {dayInputEl(displayDays)}

@@ -4,9 +4,9 @@
  * Model:  suggestedDays = lr_slope * score + lr_intercept
  *
  * Where `score` is a 0-1 float from the Python NLP sidecar:
- *   0.0 = very positive  →  negative days (push the date further away)
- *   0.5 = neutral        →  0 days (no change)
- *   1.0 = very negative  →  positive days (bring the date closer)
+ *   0.0 = very positive/happy  →  positive days (bring date closer — you're happy, do it sooner)
+ *   0.5 = neutral              →  0 days (no change)
+ *   1.0 = very negative/mad    →  negative days (push date further — you need more time)
  *
  * The model is updated after each user override using stochastic gradient descent
  * with L2 regularisation and gradient clipping to prevent instability.
@@ -53,10 +53,10 @@ const GRAD_CLIP     =  5.0;
 export function predict(model: LinearModel, score: number): number {
   if (model.sample_count < COLD_START_THRESHOLD) {
     // Symmetric base curve:
-    //   score 0.0 (very positive) → -7 days (push date further away)
-    //   score 0.5 (neutral)       →  0 days (no change)
-    //   score 1.0 (very negative) → +7 days (bring date closer)
-    return Math.round((score - 0.5) * MAX_DAYS);
+    //   score 0.0 (very positive/happy) → +7 days (bring date closer — do it sooner)
+    //   score 0.5 (neutral)             →  0 days (no change)
+    //   score 1.0 (very negative/mad)   → -7 days (push date further — need more time)
+    return Math.round((0.5 - score) * MAX_DAYS);
   }
 
   const raw = model.lr_slope * score + model.lr_intercept;
