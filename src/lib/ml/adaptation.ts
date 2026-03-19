@@ -1,75 +1,78 @@
 /**
  * Per-user online linear regression for NLP suggestion adaptation.
  *
- * Model:  suggestedDays = lr_slope * score + lr_intercept
+ * Model:  days = lr_slope × (0.5 − score) + lr_intercept
  *
  * Where `score` is a 0-1 float from the Python NLP sidecar:
- *   0.0 = very positive/happy  →  positive days (bring date closer — you're happy, do it sooner)
- *   0.5 = neutral              →  0 days (no change)
- *   1.0 = very negative/mad    →  negative days (push date further — you need more time)
+ *   0.0 = very positive/happy  →  +slope/2 + intercept  →  positive (bring date closer)
+ *   0.5 = neutral              →  intercept (~0)         →  no change
+ *   1.0 = very negative/mad    →  −slope/2 + intercept  →  negative (push date further)
+ *
+ * The input is centred at (0.5 − score) so that:
+ *   - slope is always positive (magnitude of response), clamped [1, 28]
+ *   - defaultLinearModel() exactly reproduces the (0.5−score)×14 base curve
+ *   - no cold-start jump: the model is used from the very first prediction
+ *   - L2 regularisation pulls slope back toward 14 (not 1) between overrides
  *
  * The model is updated after each user override using stochastic gradient descent
  * with L2 regularisation and gradient clipping to prevent instability.
  *
  * Stability guarantees:
- *  - Cold start (< 3 samples): symmetric base curve → [-7, +7] days
- *  - Slope clamped to [0.5, 3.0]:  can't suggest 0 or absurdly many days
+ *  - Slope clamped to [1, 28]:    always positive, at most 2× default range
  *  - Intercept clamped to [-7, 7]: symmetric shift only
- *  - L2 regularisation λ=0.01:     pulls toward slope=1, intercept=0
- *  - Gradient clip [-5, 5]:        single extreme override can't destabilise
+ *  - L2 regularisation λ=0.01:    pulls toward slope=14, intercept=0
+ *  - Gradient clip [-5, 5]:       single extreme override can't destabilise
  *  - LR decay 0.97× per update → floor 0.01: converges after ~75 overrides
  */
 
 export interface LinearModel {
-  lr_slope: number;          // default 1.0, clamped [0.5, 3.0]
-  lr_intercept: number;      // default 0.0, clamped [-3.0, 5.0]
+  lr_slope: number;          // default 14.0, clamped [1.0, 28.0]
+  lr_intercept: number;      // default 0.0,  clamped [-7.0, 7.0]
   lr_learning_rate: number;  // starts 0.1, decays 0.97x per update, floor 0.01
   sample_count: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const COLD_START_THRESHOLD = 3;
+// No cold-start threshold — defaultLinearModel() is already the base curve,
+// so the model gives correct predictions from sample 0 and learns from sample 1.
+export const COLD_START_THRESHOLD = 0;
 
-const MAX_DAYS      = 14;
-const HALF_RANGE    = MAX_DAYS / 2;   // 7 — predictions span [-7, +7]
-const SLOPE_MIN     =  0.5;
-const SLOPE_MAX     =  3.0;
-const INTERCEPT_MIN = -HALF_RANGE;   // -7
-const INTERCEPT_MAX =  HALF_RANGE;   //  7
-const LR_FLOOR      =  0.01;
-const LR_DECAY      =  0.97;
-const L2_LAMBDA     =  0.01;  // regularisation strength (pulls toward neutral defaults)
-const GRAD_CLIP     =  5.0;
+const HALF_RANGE      =  7;          // predictions span [-7, +7]
+const SLOPE_DEFAULT   = 14.0;        // slope s.t. score 0→+7, 0.5→0, 1→-7
+const SLOPE_MIN       =  1.0;
+const SLOPE_MAX       = 28.0;
+const INTERCEPT_MIN   = -HALF_RANGE;
+const INTERCEPT_MAX   =  HALF_RANGE;
+const LR_FLOOR        =  0.01;
+const LR_DECAY        =  0.97;
+const L2_LAMBDA       =  0.01;  // pulls slope toward SLOPE_DEFAULT, intercept toward 0
+const GRAD_CLIP       =  5.0;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Predict how many days to suggest given a raw 0-1 sentiment score.
  *
- * During cold start (sample_count < 3) returns the base curve so the model
- * doesn't influence suggestions before it has learned anything meaningful.
+ * Formula: days = lr_slope × (0.5 − score) + lr_intercept
+ *   score 0.0 (happy)   → +7  (bring date closer — you're keen, do it sooner)
+ *   score 0.5 (neutral) →  0  (no change)
+ *   score 1.0 (mad)     → -7  (push date further — you need more time)
  */
 export function predict(model: LinearModel, score: number): number {
-  if (model.sample_count < COLD_START_THRESHOLD) {
-    // Symmetric base curve:
-    //   score 0.0 (very positive/happy) → +7 days (bring date closer — do it sooner)
-    //   score 0.5 (neutral)             →  0 days (no change)
-    //   score 1.0 (very negative/mad)   → -7 days (push date further — need more time)
-    return Math.round((0.5 - score) * MAX_DAYS);
-  }
-
-  const raw = model.lr_slope * score + model.lr_intercept;
+  const raw = model.lr_slope * (0.5 - score) + model.lr_intercept;
   return Math.max(-HALF_RANGE, Math.min(HALF_RANGE, Math.round(raw)));
 }
 
 /**
  * Update the model given a (score, chosenDays) observation.
  *
- * Uses online stochastic gradient descent on MSE loss with:
- *   L2 regularisation: keeps slope near 1 and intercept near 0
- *   Gradient clipping: prevents a single wild override from destabilising
- *   Learning rate decay: model converges gradually, stops thrashing
+ * Uses online SGD on MSE loss:  L = ½(predicted − chosen)²
+ *   ∂L/∂slope     = error × (0.5 − score)  +  λ × (slope − SLOPE_DEFAULT)
+ *   ∂L/∂intercept = error                  +  λ × intercept
+ *
+ * L2 regularisation anchors slope toward 14 so the model doesn't drift away
+ * from the sensible default between sessions with few overrides.
  *
  * Returns a new model (immutable update).
  */
@@ -78,17 +81,14 @@ export function updateModel(
   score: number,
   chosenDays: number
 ): LinearModel {
-  const predicted = model.lr_slope * score + model.lr_intercept;
-  const error     = predicted - chosenDays;          // (y_hat - y)
+  const centred   = 0.5 - score;                                // centred input
+  const predicted = model.lr_slope * centred + model.lr_intercept;
+  const error     = predicted - chosenDays;
   const lr        = model.lr_learning_rate;
 
-  // MSE gradients + L2 regularisation penalty
-  // dL/d_slope     = error * score + λ * (slope - 1.0)
-  // dL/d_intercept = error         + λ * (intercept - 0.0)
-  const gradSlope     = error * score + L2_LAMBDA * (model.lr_slope     - 1.0);
-  const gradIntercept = error         + L2_LAMBDA * (model.lr_intercept - 0.0);
+  const gradSlope     = error * centred + L2_LAMBDA * (model.lr_slope     - SLOPE_DEFAULT);
+  const gradIntercept = error            + L2_LAMBDA *  model.lr_intercept;
 
-  // Clip gradients to prevent a single extreme data point from destabilising
   const clip = (g: number): number => Math.max(-GRAD_CLIP, Math.min(GRAD_CLIP, g));
 
   const newSlope     = model.lr_slope     - lr * clip(gradSlope);
@@ -104,11 +104,12 @@ export function updateModel(
 
 /**
  * Default / initial model for a new (user, event) pair.
- * Equivalent to the base curve (slope=1 → score*14 days, intercept=0).
+ * slope=14 + intercept=0 exactly reproduces (0.5−score)×14:
+ *   score 0 → +7, score 0.5 → 0, score 1 → -7
  */
 export function defaultLinearModel(): LinearModel {
   return {
-    lr_slope:         1.0,
+    lr_slope:         SLOPE_DEFAULT,  // 14.0
     lr_intercept:     0.0,
     lr_learning_rate: 0.1,
     sample_count:     0,

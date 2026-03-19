@@ -57,8 +57,11 @@ export function DateAdjustmentLog({ eventId }: DateAdjustmentLogProps) {
             <p className="leading-snug line-clamp-2 flex-1 min-w-0">
               {adj.reason_text}
             </p>
-            <Badge variant="destructive" className="text-xs px-1.5 shrink-0">
-              -{adj.days_chosen}d
+            <Badge
+              variant={adj.days_chosen >= 0 ? "destructive" : "outline"}
+              className="text-xs px-1.5 shrink-0"
+            >
+              {adj.days_chosen > 0 ? `+${adj.days_chosen}d` : `${adj.days_chosen}d`}
             </Badge>
           </div>
           <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
