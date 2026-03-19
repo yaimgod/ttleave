@@ -3,15 +3,18 @@
  *
  * Model:  suggestedDays = lr_slope * score + lr_intercept
  *
- * Where `score` is a 0-1 float from the Python NLP sidecar.
+ * Where `score` is a 0-1 float from the Python NLP sidecar:
+ *   0.0 = very positive  →  negative days (push the date further away)
+ *   0.5 = neutral        →  0 days (no change)
+ *   1.0 = very negative  →  positive days (bring the date closer)
  *
  * The model is updated after each user override using stochastic gradient descent
  * with L2 regularisation and gradient clipping to prevent instability.
  *
  * Stability guarantees:
- *  - Cold start (< 3 samples): use simple base curve (round(score * 14))
+ *  - Cold start (< 3 samples): symmetric base curve → [-7, +7] days
  *  - Slope clamped to [0.5, 3.0]:  can't suggest 0 or absurdly many days
- *  - Intercept clamped to [-3, 5]: small baseline shift only
+ *  - Intercept clamped to [-7, 7]: symmetric shift only
  *  - L2 regularisation λ=0.01:     pulls toward slope=1, intercept=0
  *  - Gradient clip [-5, 5]:        single extreme override can't destabilise
  *  - LR decay 0.97× per update → floor 0.01: converges after ~75 overrides
@@ -29,10 +32,11 @@ export interface LinearModel {
 export const COLD_START_THRESHOLD = 3;
 
 const MAX_DAYS      = 14;
+const HALF_RANGE    = MAX_DAYS / 2;   // 7 — predictions span [-7, +7]
 const SLOPE_MIN     =  0.5;
 const SLOPE_MAX     =  3.0;
-const INTERCEPT_MIN = -3.0;
-const INTERCEPT_MAX =  5.0;
+const INTERCEPT_MIN = -HALF_RANGE;   // -7
+const INTERCEPT_MAX =  HALF_RANGE;   //  7
 const LR_FLOOR      =  0.01;
 const LR_DECAY      =  0.97;
 const L2_LAMBDA     =  0.01;  // regularisation strength (pulls toward neutral defaults)
@@ -48,12 +52,15 @@ const GRAD_CLIP     =  5.0;
  */
 export function predict(model: LinearModel, score: number): number {
   if (model.sample_count < COLD_START_THRESHOLD) {
-    // Base curve: 0.0 → 0 days, 0.5 → 7 days, 1.0 → 14 days
-    return Math.max(0, Math.round(score * MAX_DAYS));
+    // Symmetric base curve:
+    //   score 0.0 (very positive) → -7 days (push date further away)
+    //   score 0.5 (neutral)       →  0 days (no change)
+    //   score 1.0 (very negative) → +7 days (bring date closer)
+    return Math.round((score - 0.5) * MAX_DAYS);
   }
 
   const raw = model.lr_slope * score + model.lr_intercept;
-  return Math.max(0, Math.min(MAX_DAYS, Math.round(raw)));
+  return Math.max(-HALF_RANGE, Math.min(HALF_RANGE, Math.round(raw)));
 }
 
 /**

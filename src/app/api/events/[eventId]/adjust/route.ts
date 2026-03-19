@@ -86,7 +86,9 @@ export async function POST(request: Request, { params }: Params) {
     .select("lr_slope, lr_intercept, lr_learning_rate, sample_count")
     .eq("user_id", user.id)
     .eq("event_id", params.eventId)
-    .single();
+    .order("last_updated", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   const model: LinearModel = feedbackRow
     ? (feedbackRow as LinearModel)
@@ -148,7 +150,9 @@ export async function POST(request: Request, { params }: Params) {
   await supabase
     .from("nlp_feedback")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase infers 'never' for upsert payload
-    .upsert(nlpPayload as any);
+    // onConflict must target the UNIQUE(user_id, event_id) constraint — the PK is an
+    // auto-UUID not present in the payload, so without this every call inserts a new row.
+    .upsert(nlpPayload as any, { onConflict: "user_id,event_id" });
 
   return NextResponse.json({
     adjustment,

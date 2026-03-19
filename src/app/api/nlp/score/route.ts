@@ -72,7 +72,9 @@ export async function POST(request: Request) {
           .select("lr_slope, lr_intercept, lr_learning_rate, sample_count")
           .eq("user_id", user.id)
           .eq("event_id", eventId)
-          .single();
+          .order("last_updated", { ascending: false })
+          .limit(1)
+          .maybeSingle();
         if (row) model = row as LinearModel;
       }
     }

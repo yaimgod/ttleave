@@ -8,7 +8,7 @@ export const submitAdjustmentSchema = z.object({
   days_chosen: z
     .number()
     .int()
-    .min(0, "Must be 0 or more days")
+    .min(-365, "Min -365 days")
     .max(365, "Max 365 days"),
 });
 

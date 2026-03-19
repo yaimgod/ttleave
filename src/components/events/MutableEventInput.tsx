@@ -42,6 +42,29 @@ const bucketMeta: Record<string, { color: string; label: string }> = {
   critical: { color: "bg-red-200 text-red-900 border-red-300",          label: "Critical" },
 };
 
+/** Action label for the submit button (+/- aware). */
+function daysLabel(days: number): string {
+  const abs = Math.abs(days);
+  const plural = abs === 1 ? "" : "s";
+  if (days > 0) return `Move date up by ${abs} day${plural}`;
+  if (days < 0) return `Push date back by ${abs} day${plural}`;
+  return "Set days to submit";
+}
+
+/** Toast message after submission (+/- aware). */
+function toastLabel(days: number): string {
+  const abs = Math.abs(days);
+  const plural = abs === 1 ? "" : "s";
+  if (days > 0) return `Countdown moved up by ${abs} day${plural}`;
+  if (days < 0) return `Countdown pushed back by ${abs} day${plural}`;
+  return "No change made";
+}
+
+/** Signed display string for a day count. */
+function signedDays(days: number): string {
+  return days > 0 ? `+${days}d` : `${days}d`;
+}
+
 export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProps) {
   const [preview, setPreview] = useState<ScorePreview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -95,7 +118,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
   };
 
   const commitEdit = (val: number) => {
-    const clamped = Math.max(0, Math.min(365, val));
+    const clamped = Math.max(-365, Math.min(365, val));
     setManualDays(clamped);
     form.setValue("days_chosen", clamped, { shouldValidate: true });
     setEditingDays(false);
@@ -123,9 +146,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
     }
 
     const data = await res.json();
-    toast.success(
-      `Countdown moved up by ${values.days_chosen} day${values.days_chosen === 1 ? "" : "s"}`
-    );
+    toast.success(toastLabel(values.days_chosen));
     form.reset();
     setPreview(null);
     setManualDays(null);
@@ -137,6 +158,41 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
   const meta = preview ? (bucketMeta[preview.bucket] ?? bucketMeta.calm) : null;
   const isOverride = manualDays !== null && preview !== null && manualDays !== preview.suggestedDays;
 
+  const dayInputEl = (defaultVal: number) => (
+    editingDays ? (
+      <input
+        ref={daysInputRef}
+        type="number"
+        min={-365}
+        max={365}
+        defaultValue={defaultVal}
+        className={cn(
+          "w-16 rounded border px-1.5 py-0.5 text-sm font-semibold text-center",
+          "bg-white/70 focus:outline-none focus:ring-1 focus:ring-current"
+        )}
+        onBlur={(e) => commitEdit(Number(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitEdit(Number((e.target as HTMLInputElement).value));
+          if (e.key === "Escape") setEditingDays(false);
+        }}
+      />
+    ) : (
+      <button
+        type="button"
+        onClick={startEditing}
+        className={cn(
+          "flex items-center gap-1 rounded border px-2 py-0.5 text-sm font-semibold",
+          "bg-white/50 hover:bg-white/80 transition-colors cursor-pointer",
+          isOverride && "ring-1 ring-current"
+        )}
+        title="Click to override"
+      >
+        {signedDays(displayDays)}
+        <Pencil className="h-3 w-3 opacity-60" />
+      </button>
+    )
+  );
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
@@ -145,10 +201,10 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
           name="reason_text"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-sm">Why do you want to move the date?</FormLabel>
+              <FormLabel className="text-sm">How are you feeling about this date?</FormLabel>
               <FormControl>
                 <Textarea
-                  placeholder="e.g. Had a stressful sprint review, deadlines were moved up…"
+                  placeholder="e.g. Had a stressful sprint review… or everything is going great, no rush!"
                   className="resize-none text-sm"
                   rows={3}
                   {...field}
@@ -167,7 +223,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
         {preview && reasonText.length >= 5 && (
           <div className={cn("rounded-lg border p-3 space-y-2", meta?.color)}>
 
-            {/* Stress level row */}
+            {/* Mood level row */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className={cn("text-xs capitalize border", meta?.color)}>
@@ -180,53 +236,23 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
 
             {/* Days row */}
             {preview.suggestedDays === 0 ? (
-              // Not stressful enough to suggest any days
+              // Neutral — no change suggested, but allow manual override
               <p className="text-xs opacity-75">
-                Stress level too low to suggest a date change — override below if you still want one.
+                Feeling neutral — no date change suggested. Override below if you want one.
               </p>
             ) : (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium">Suggested:</span>
+                <span className="text-xs font-medium">
+                  {preview.suggestedDays > 0 ? "Bring closer:" : "Push back:"}
+                </span>
 
-                {/* Inline editable days chip */}
-                {editingDays ? (
-                  <input
-                    ref={daysInputRef}
-                    type="number"
-                    min={0}
-                    max={365}
-                    defaultValue={displayDays}
-                    className={cn(
-                      "w-14 rounded border px-1.5 py-0.5 text-sm font-semibold text-center",
-                      "bg-white/70 focus:outline-none focus:ring-1 focus:ring-current"
-                    )}
-                    onBlur={(e) => commitEdit(Number(e.target.value))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitEdit(Number((e.target as HTMLInputElement).value));
-                      if (e.key === "Escape") setEditingDays(false);
-                    }}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={startEditing}
-                    className={cn(
-                      "flex items-center gap-1 rounded border px-2 py-0.5 text-sm font-semibold",
-                      "bg-white/50 hover:bg-white/80 transition-colors cursor-pointer",
-                      isOverride && "ring-1 ring-current"
-                    )}
-                    title="Click to override"
-                  >
-                    {displayDays}d
-                    <Pencil className="h-3 w-3 opacity-60" />
-                  </button>
-                )}
+                {dayInputEl(displayDays)}
 
                 {/* Show original suggestion when overriding */}
                 {isOverride && (
                   <>
                     <span className="text-[10px] opacity-70">
-                      (suggested {preview.suggestedDays}d)
+                      (suggested {signedDays(preview.suggestedDays)})
                     </span>
                     <Button
                       type="button"
@@ -236,42 +262,18 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
                       onClick={claimSuggested}
                     >
                       <CheckCheck className="h-3 w-3" />
-                      Use {preview.suggestedDays}d
+                      Use {signedDays(preview.suggestedDays)}
                     </Button>
                   </>
                 )}
               </div>
             )}
 
-            {/* Override input always available when suggestion is 0 */}
+            {/* Manual override when suggestion is exactly 0 */}
             {preview.suggestedDays === 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium">Days anyway:</span>
-                {editingDays ? (
-                  <input
-                    ref={daysInputRef}
-                    type="number"
-                    min={0}
-                    max={365}
-                    defaultValue={displayDays}
-                    className="w-14 rounded border px-1.5 py-0.5 text-sm font-semibold text-center bg-white/70 focus:outline-none"
-                    onBlur={(e) => commitEdit(Number(e.target.value))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitEdit(Number((e.target as HTMLInputElement).value));
-                      if (e.key === "Escape") setEditingDays(false);
-                    }}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={startEditing}
-                    className="flex items-center gap-1 rounded border px-2 py-0.5 text-sm font-semibold bg-white/50 hover:bg-white/80 transition-colors"
-                    title="Click to set days manually"
-                  >
-                    {displayDays}d
-                    <Pencil className="h-3 w-3 opacity-60" />
-                  </button>
-                )}
+                {dayInputEl(displayDays)}
               </div>
             )}
 
@@ -283,11 +285,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
                 disabled={loading || displayDays === 0}
                 className="h-7 text-xs"
               >
-                {loading
-                  ? "Saving…"
-                  : displayDays > 0
-                  ? `Move date up by ${displayDays}d`
-                  : "Set days to submit"}
+                {loading ? "Saving…" : daysLabel(displayDays)}
               </Button>
             </div>
           </div>
@@ -295,7 +293,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
 
         {!preview && (
           <p className="text-xs text-muted-foreground">
-            Keep typing — we&apos;ll analyse the stress level and suggest how many days to advance.
+            Keep typing — we&apos;ll read the mood and suggest whether to bring the date closer or push it back.
           </p>
         )}
       </form>
