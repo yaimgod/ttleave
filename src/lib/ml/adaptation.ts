@@ -1,21 +1,25 @@
 /**
  * Per-user online linear regression for NLP suggestion adaptation.
  *
- * Model:  days = lr_slope × (0.5 − score) + lr_intercept
+ * Model:  days = lr_slope × (score − 0.5) + lr_intercept
  *
  * Where `score` is a 0-1 float from the Python NLP sidecar:
- *   0.0 = very positive/happy  →  +slope/2 + intercept  →  positive (bring date closer)
+ *   0.0 = very positive/happy  →  −slope/2 + intercept  →  negative (push date further — no rush)
  *   0.5 = neutral              →  intercept (~0)         →  no change
- *   1.0 = very negative/mad    →  −slope/2 + intercept  →  negative (push date further)
+ *   1.0 = very negative/mad    →  +slope/2 + intercept  →  positive (bring date closer — need a break)
  *
- * The input is centred at (0.5 − score) so that:
+ * The input is centred at (score − 0.5) so that:
  *   - slope is always positive (magnitude of response), clamped [1, 28]
- *   - defaultLinearModel() exactly reproduces the (0.5−score)×14 base curve
+ *   - defaultLinearModel() exactly reproduces the (score−0.5)×14 base curve
  *   - no cold-start jump: the model is used from the very first prediction
  *   - L2 regularisation pulls slope back toward 14 (not 1) between overrides
  *
  * The model is updated after each user override using stochastic gradient descent
  * with L2 regularisation and gradient clipping to prevent instability.
+ *
+ * Mental model:
+ *   stressed / mad  → score near 1  → days > 0 → bring leave closer  (you need a break)
+ *   happy / calm    → score near 0  → days < 0 → push leave further   (no urgency)
  *
  * Stability guarantees:
  *  - Slope clamped to [1, 28]:    always positive, at most 2× default range
@@ -54,13 +58,13 @@ const GRAD_CLIP       =  5.0;
 /**
  * Predict how many days to suggest given a raw 0-1 sentiment score.
  *
- * Formula: days = lr_slope × (0.5 − score) + lr_intercept
- *   score 0.0 (happy)   → +7  (bring date closer — you're keen, do it sooner)
+ * Formula: days = lr_slope × (score − 0.5) + lr_intercept
+ *   score 0.0 (happy)   → −7  (push leave further  — no rush, you're doing well)
  *   score 0.5 (neutral) →  0  (no change)
- *   score 1.0 (mad)     → -7  (push date further — you need more time)
+ *   score 1.0 (mad)     → +7  (bring leave closer   — you need a break)
  */
 export function predict(model: LinearModel, score: number): number {
-  const raw = model.lr_slope * (0.5 - score) + model.lr_intercept;
+  const raw = model.lr_slope * (score - 0.5) + model.lr_intercept;
   return Math.max(-HALF_RANGE, Math.min(HALF_RANGE, Math.round(raw)));
 }
 
@@ -81,7 +85,7 @@ export function updateModel(
   score: number,
   chosenDays: number
 ): LinearModel {
-  const centred   = 0.5 - score;                                // centred input
+  const centred   = score - 0.5;                                 // centred input
   const predicted = model.lr_slope * centred + model.lr_intercept;
   const error     = predicted - chosenDays;
   const lr        = model.lr_learning_rate;
