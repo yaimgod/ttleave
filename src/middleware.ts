@@ -22,7 +22,7 @@ type CookieToSet = { name: string; value: string; options?: Record<string, unkno
 // inside the container — it is only available on the Docker host machine.
 function getCookieName(url: string): string {
   try {
-    const hostname = new URL(url).hostname.split(".")[0];
+    const hostname = new URL(url).hostname;
     return `sb-${hostname}-auth-token`;
   } catch {
     return "sb-localhost-auth-token";
