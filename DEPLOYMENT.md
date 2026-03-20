@@ -1,125 +1,149 @@
 # TTLeave — Deployment & Local Development
 
-For port mappings, Coolify proxy setup, and SSH tunnel instructions see **[SERVICES.md](./SERVICES.md)**.
+For port mappings and service descriptions see **[SERVICES.md](./SERVICES.md)**.
 For email and OAuth configuration see **[AUTH.md](./AUTH.md)**.
 
 ---
 
-## 1. Deploy with Coolify
+## Architecture overview
 
-Coolify runs a reverse proxy (HTTPS, Let's Encrypt) and deploys your stack via Docker Compose.
+The single `docker-compose.yaml` uses **Docker Compose profiles** to support two modes:
+
+| Mode | Command | Services started |
+|---|---|---|
+| **App only** | `docker compose up -d` | `app`, `nlp` |
+| **Full stack** | `docker compose --profile supabase up -d` | `app`, `nlp` + all Supabase services |
+
+In **Coolify**, this maps to **two separate resources** from the same Git repo:
+
+```
+┌─────────────────────────────────┐   ┌─────────────────────────────────┐
+│  Resource 1: Supabase           │   │  Resource 2: App                │
+│  profile: supabase              │   │  (no profile)                   │
+│                                 │   │                                 │
+│  db, migrate, kong, auth,       │   │  app (Next.js)                  │
+│  rest, realtime, storage,       │   │  nlp (BERT sidecar)             │
+│  imgproxy, meta, studio         │   │                                 │
+│                                 │   │  → connects to kong:8000 via    │
+│  Network: supabase_net          │◄──┤    shared Docker network        │
+└─────────────────────────────────┘   └─────────────────────────────────┘
+         api.yourdomain.com                   app.yourdomain.com
+         (Kong — port 8001)                   (Next.js — port 3000)
+```
+
+The App resource joins the Supabase resource's network so that `http://kong:8000`
+resolves from inside the `app` container without exposing Kong to the internet.
+
+---
+
+## 1. Deploy with Coolify (two-resource setup)
 
 ### Prerequisites
 
-- A VPS with Docker installed
-- [Coolify](https://coolify.io/) installed on that server
-- Two (sub)domains — one for the app, one for the API (e.g. `app.yourdomain.com`, `api.yourdomain.com`)
-- Optionally: SMTP credentials for real email delivery (see [AUTH.md](./AUTH.md))
+- A VPS with Docker installed and [Coolify](https://coolify.io/) running
+- Two domains pointed at your VPS:
+  - `app.yourdomain.com` → the Next.js app
+  - `api.yourdomain.com` → Supabase Kong (public API)
+- SMTP credentials (e.g. [Resend](https://resend.com)) — see [AUTH.md](./AUTH.md)
 
 ---
 
-### Step 1 — Prepare `.env`
+### Step 1 — Generate secrets
 
-On your local machine:
+Run locally and keep the output safe:
 
 ```bash
-cp .env.example .env
-bash scripts/generate-secrets.sh   # paste the printed block into .env
+bash scripts/generate-secrets.sh
 ```
 
-Set the URL variables to your real domains:
-
-```env
-SUPABASE_PUBLIC_URL=https://api.yourdomain.com
-API_EXTERNAL_URL=https://api.yourdomain.com
-NEXT_PUBLIC_SUPABASE_URL=https://api.yourdomain.com
-SITE_URL=https://app.yourdomain.com
-NEXT_PUBLIC_APP_URL=https://app.yourdomain.com
-```
-
-Set SMTP for real email delivery — a real transactional provider (e.g. Resend) is required. See [AUTH.md](./AUTH.md) for configuration details.
+You'll need these values in both Coolify resources.
 
 ---
 
-### Step 2 — Add the resource in Coolify
+### Step 2 — Resource 1: Supabase
 
-1. Log in to your Coolify dashboard → **New Resource**
-2. Choose **Docker Compose**
-3. Connect the source:
-   - **From repository:** connect GitHub, select this repo and branch — Coolify uses `docker-compose.yml` and `coolify.json`
-   - **From server:** point to the directory containing `docker-compose.yml`
+This resource starts all Supabase services using the `supabase` profile.
 
----
+1. In Coolify → **New Resource → Docker Compose**
+2. Connect your Git repo (this repository)
+3. Set **Compose file**: `docker-compose.yaml`
+4. Set **Docker Compose Profile**: `supabase`
+5. **Environment Variables** — paste all values from `.env.supabase.example`:
 
-### Step 3 — Set environment variables
-
-In the Coolify resource's **Environment Variables** panel, paste every variable from your `.env` — same names, same values.
-
-Key variables Coolify must have:
-
-| Variable | Description |
+| Variable | Value |
 |---|---|
-| `POSTGRES_PASSWORD` | DB superuser password (generated) |
-| `JWT_SECRET` | Signing key for all JWTs (generated) |
-| `ANON_KEY` | Public API key JWT (generated) |
-| `SERVICE_ROLE_KEY` | Server-side API key JWT (generated) |
-| `DASHBOARD_PASSWORD` | Supabase Studio login password (generated) |
-| `SECRET_KEY_BASE` | Realtime secret (generated) |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://api.yourdomain.com` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Same as `ANON_KEY` |
-| `NEXT_PUBLIC_APP_URL` | `https://app.yourdomain.com` |
-| `SITE_URL` | `https://app.yourdomain.com` |
+| `POSTGRES_PASSWORD` | *(generated)* |
+| `JWT_SECRET` | *(generated)* |
+| `ANON_KEY` | *(generated)* |
+| `SERVICE_ROLE_KEY` | *(generated)* |
+| `DASHBOARD_PASSWORD` | *(generated)* |
+| `SECRET_KEY_BASE` | *(generated)* |
+| `SUPABASE_PUBLIC_URL` | `https://api.yourdomain.com` |
 | `API_EXTERNAL_URL` | `https://api.yourdomain.com` |
+| `SITE_URL` | `https://app.yourdomain.com` |
+| `SMTP_HOST` | e.g. `smtp.resend.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_USER` | `resend` |
+| `SMTP_PASS` | *(your API key)* |
+| `SMTP_ADMIN_EMAIL` | `noreply@yourdomain.com` |
 
-Do **not** commit `.env` to Git. Set everything in Coolify's UI.
+6. **Proxy** → point `api.yourdomain.com` → port `8001` — enable HTTPS
+7. Click **Deploy**
 
----
-
-### Step 4 — Add Coolify proxies
-
-Two proxy entries are required. See **[SERVICES.md](./SERVICES.md)** for full details.
-
-| Proxy | Domain | Forwards to |
-|---|---|---|
-| App | `app.yourdomain.com` | `localhost:3000` |
-| API (Kong) | `api.yourdomain.com` | `localhost:8001` |
-
-Enable HTTPS (Let's Encrypt) on both.
-
----
-
-### Step 5 — Deploy
-
-1. Click **Deploy** in Coolify
-2. Coolify builds the Next.js image, pulls all other images, and starts the stack
-3. Wait for the app to be healthy (~1 min on first run — the `migrate` service runs once then exits with code 0)
-4. Open `https://app.yourdomain.com`
+> Studio is bound to `127.0.0.1:3001` only. Access via SSH tunnel:
+> ```bash
+> ssh -L 3001:127.0.0.1:3001 user@your-server
+> # → http://localhost:3001  (login: supabase / DASHBOARD_PASSWORD)
+> ```
 
 ---
 
-### Step 6 — Access Studio
+### Step 3 — Resource 2: App
 
-Studio is bound to `localhost` only. Use an SSH tunnel from your local machine:
+This resource starts only `app` and `nlp` (no profile flag).
 
-```bash
-# Supabase Studio
-ssh -L 3001:127.0.0.1:3001 user@your-server
-# → http://localhost:3001   (login: supabase / DASHBOARD_PASSWORD)
-```
+1. In Coolify → **New Resource → Docker Compose**
+2. Connect the **same Git repo**
+3. Set **Compose file**: `docker-compose.yaml`
+4. Leave **Docker Compose Profile** blank (no profile = app+nlp only)
+5. **Environment Variables** — paste all values from `.env.app.example`:
+
+| Variable | Value |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://api.yourdomain.com` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same as `ANON_KEY` above |
+| `NEXT_PUBLIC_APP_URL` | `https://app.yourdomain.com` |
+| `SUPABASE_SERVICE_ROLE_KEY` | same as `SERVICE_ROLE_KEY` above |
+| `SUPABASE_URL` | `http://kong:8000` *(internal — do not change)* |
+| `NLP_SERVICE_URL` | `http://nlp:8080` *(internal — do not change)* |
+
+6. **Proxy** → point `app.yourdomain.com` → port `3000` — enable HTTPS
+7. **Network** → join the Supabase resource's Docker network
+   (Coolify UI: Resource settings → Networks → attach `<supabase-resource>_supabase_net`)
+   This allows the `app` container to reach `kong:8000` by hostname.
+8. Click **Deploy**
+
+> `SUPABASE_URL=http://kong:8000` works because both resources share the
+> same Docker network. Kong is **never** exposed directly to the internet.
 
 ---
 
-### Auto-deploy on push (optional)
+### Step 4 — Auto-deploy on push (optional)
 
-In Coolify's resource settings, enable **Webhook** / **Auto Deploy** so that pushes to the connected branch trigger a new deployment automatically.
+In each resource's settings enable **Webhook / Auto Deploy** so pushes to
+the connected branch trigger a new deployment automatically.
+
+> ⚠️ Only the **App** resource needs to rebuild on every push (Next.js code).
+> The **Supabase** resource only needs redeployment when Supabase config or
+> migrations change.
 
 ---
 
 ## 2. Local development
 
-### Option A — Full Docker stack (production-like)
+### Option A — Full Docker stack (recommended, production-like)
 
-Best for testing deployment behavior end-to-end.
+Starts all services including Supabase using the `supabase` profile.
 
 ```bash
 cp .env.example .env
@@ -137,7 +161,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 Start everything:
 ```bash
-docker compose up -d
+docker compose --profile supabase up -d
 ```
 
 | URL | What |
@@ -146,56 +170,76 @@ docker compose up -d
 | http://localhost:8001 | Supabase API (Kong) |
 | http://localhost:3001 | Supabase Studio (login: supabase / DASHBOARD_PASSWORD) |
 
-Stop: `docker compose down`
+Stop: `docker compose --profile supabase down`
 
 ---
 
-### Option B — Hot-reload dev server (frontend development)
+### Option B — Hot-reload dev server (fast frontend iteration)
 
-Best for frontend work — Next.js runs natively with fast refresh while Supabase runs in Docker.
+Supabase runs in Docker; Next.js runs natively with hot reload.
 
 ```bash
-# Start only the backend services (no app container)
-docker compose up -d db kong auth rest realtime storage imgproxy meta
+# Start only Supabase services (supabase profile, no app container)
+docker compose --profile supabase up -d db kong auth rest realtime storage imgproxy meta migrate
 
-# In a separate terminal, run the Next.js dev server
+# In a separate terminal — run the Next.js dev server
 npm install
 npm run dev
 ```
 
-The dev server reads from `.env` directly — ensure `NEXT_PUBLIC_SUPABASE_URL=http://localhost:8001` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set there.
+The dev server reads `.env` directly — ensure `NEXT_PUBLIC_SUPABASE_URL=http://localhost:8001`
+and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set there.
 
-Stop: Ctrl+C, then `docker compose down`.
+Stop: `Ctrl+C`, then `docker compose --profile supabase down`
+
+---
+
+### Option C — App only (external Supabase)
+
+Use this when Supabase is already running elsewhere (e.g. another machine or
+a Coolify Supabase resource you've already deployed).
+
+```bash
+# Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_URL in .env to point at your Supabase instance
+docker compose up -d   # starts app + nlp only
+```
 
 ---
 
 ## 3. Common operations
 
-### Reset database (deletes all data)
-```bash
-docker compose down -v
-docker compose up -d
-```
-
 ### Rebuild app after code or env changes
 ```bash
+docker compose --profile supabase up -d --build app
+# or app-only mode:
 docker compose up -d --build app
+```
+
+### Apply a new database migration
+```bash
+docker compose --profile supabase exec db psql -U supabase_admin -d postgres -f - < supabase/migrations/00X_your_migration.sql
 ```
 
 ### Restart auth after SMTP or OAuth changes
 ```bash
-docker compose up -d --force-recreate auth
+docker compose --profile supabase up -d --force-recreate auth
 ```
 
 ### View logs
 ```bash
 docker compose logs -f app
 docker compose logs -f auth
-docker compose logs -f kong
+docker compose logs -f nlp
 ```
 
 ### Check all service health
 ```bash
-docker compose ps
+docker compose --profile supabase ps
 ```
 All services should show `(healthy)`. The `migrate` service shows `Exited (0)` — this is correct.
+
+### Reset database (deletes all data)
+```bash
+docker compose --profile supabase down -v
+docker compose --profile supabase up -d
+```
