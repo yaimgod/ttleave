@@ -23,7 +23,7 @@ In **Coolify**, this maps to **two separate resources** from the same Git repo:
 ```
 ┌─────────────────────────────────┐   ┌─────────────────────────────────┐
 │  Resource 1: Supabase           │   │  Resource 2: App                │
-│  profile: supabase              │   │  (no profile)                   │
+│  profile: supabase              │   │  profile: app                   │
 │                                 │   │                                 │
 │  db, migrate, kong, auth,       │   │  app (Next.js)                  │
 │  rest, realtime, storage,       │   │  nlp (BERT sidecar)             │
@@ -90,6 +90,15 @@ This resource starts all Supabase services using the `supabase` profile.
 | `SMTP_USER` | `resend` |
 | `SMTP_PASS` | *(your API key)* |
 | `SMTP_ADMIN_EMAIL` | `noreply@yourdomain.com` |
+| `SMTP_SENDER_NAME` | `TTLeave` *(display name in From field)* |
+| `MAILER_URLPATHS_CONFIRMATION` | `/auth/v1/verify` |
+| `MAILER_URLPATHS_INVITE` | `/auth/v1/verify` |
+| `MAILER_URLPATHS_RECOVERY` | `/auth/v1/verify` |
+| `MAILER_URLPATHS_EMAIL_CHANGE` | `/auth/v1/verify` |
+
+> The `MAILER_URLPATHS_*` values are **paths only** — GoTrue prepends `API_EXTERNAL_URL`
+> automatically to form the full link (e.g. `https://api.yourdomain.com/auth/v1/verify?token=...`).
+> Do not put a full URL here.
 
 6. **Proxy** → point `api.yourdomain.com` → port `8001` — enable HTTPS
 7. Click **Deploy**
@@ -104,12 +113,12 @@ This resource starts all Supabase services using the `supabase` profile.
 
 ### Step 3 — Resource 2: App
 
-This resource starts only `app` and `nlp` (no profile flag).
+This resource starts only `app` and `nlp` using the `app` profile.
 
 1. In Coolify → **New Resource → Docker Compose**
 2. Connect the **same Git repo**
 3. Set **Compose file**: `docker-compose.yaml`
-4. Leave **Docker Compose Profile** blank (no profile = app+nlp only)
+4. Set **Docker Compose Profile**: `app`
 5. **Environment Variables** — paste all values from `.env.app.example`:
 
 | Variable | Value |
