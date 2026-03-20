@@ -9,8 +9,6 @@ All services run inside the `supabase_net` Docker bridge network and communicate
 | `app` (Next.js) | 3000 | `0.0.0.0:3000` | Public — put behind Coolify proxy |
 | `kong` (API gateway) | 8000 | `0.0.0.0:8001` | Public — put behind Coolify proxy |
 | `studio` (Supabase dashboard) | 3000 | `127.0.0.1:3001` | Localhost only — SSH tunnel |
-| `mailpit` (web UI) | 8025 | `127.0.0.1:8025` | Localhost only — SSH tunnel |
-| `mailpit` (SMTP) | 1025 | `127.0.0.1:1025` | Localhost only — internal relay |
 | `db` (PostgreSQL) | 5432 | not published | Internal only |
 | `auth` (GoTrue) | 9999 | not published | Internal only (via Kong) |
 | `rest` (PostgREST) | 3000 | not published | Internal only (via Kong) |
@@ -46,7 +44,7 @@ Exits with code 0 on success. This is expected and correct.
 ### `auth` — GoTrue
 Handles all authentication: signup, login, password reset, OAuth, JWT issuance.
 Reached by the browser via Kong at `/auth/v1/*`.
-Sends emails through Mailpit (or your real SMTP provider — see [AUTH.md](./AUTH.md)).
+Sends emails through the configured SMTP provider — see [AUTH.md](./AUTH.md) for setup.
 
 ### `rest` — PostgREST
 Auto-generates a REST API from the PostgreSQL schema.
@@ -83,20 +81,6 @@ http://localhost:3001
 # Login: username = supabase, password = DASHBOARD_PASSWORD (from .env)
 ```
 
-### `mailpit` — mail catcher
-Acts as an SMTP relay for GoTrue. Catches all outgoing auth emails (confirmations, password resets) and shows them in a web UI. Emails are **not delivered** to real inboxes — they are held in Mailpit.
-
-**To view caught emails:**
-```bash
-# SSH tunnel (if on a remote server):
-ssh -L 8025:127.0.0.1:8025 user@your-server
-
-# Then open:
-http://localhost:8025
-```
-
-When you're ready to send real emails, swap the SMTP settings in `.env` — see [AUTH.md](./AUTH.md).
-
 ## Coolify proxy setup
 
 Two Coolify proxy entries are needed to make the app publicly accessible:
@@ -130,4 +114,4 @@ docker compose up -d --build app        # rebakes NEXT_PUBLIC_* into the client 
 docker compose up -d --force-recreate auth  # GoTrue picks up new SITE_URL for email links
 ```
 
-Studio and Mailpit should **not** have Coolify proxies — keep them on localhost with SSH tunnels.
+Studio should **not** have a Coolify proxy — keep it on localhost with an SSH tunnel.

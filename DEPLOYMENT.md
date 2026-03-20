@@ -37,7 +37,7 @@ SITE_URL=https://app.yourdomain.com
 NEXT_PUBLIC_APP_URL=https://app.yourdomain.com
 ```
 
-Set SMTP for real email delivery, or leave as Mailpit for development.
+Set SMTP for real email delivery — a real transactional provider (e.g. Resend) is required. See [AUTH.md](./AUTH.md) for configuration details.
 
 ---
 
@@ -97,18 +97,14 @@ Enable HTTPS (Let's Encrypt) on both.
 
 ---
 
-### Step 6 — Access Studio and Mailpit
+### Step 6 — Access Studio
 
-Both are bound to `localhost` only. Use SSH tunnels from your local machine:
+Studio is bound to `localhost` only. Use an SSH tunnel from your local machine:
 
 ```bash
 # Supabase Studio
 ssh -L 3001:127.0.0.1:3001 user@your-server
 # → http://localhost:3001   (login: supabase / DASHBOARD_PASSWORD)
-
-# Mailpit (caught emails)
-ssh -L 8025:127.0.0.1:8025 user@your-server
-# → http://localhost:8025
 ```
 
 ---
@@ -148,7 +144,6 @@ docker compose up -d
 |---|---|
 | http://localhost:3000 | The app |
 | http://localhost:8001 | Supabase API (Kong) |
-| http://localhost:8025 | Mailpit — browse caught auth emails |
 | http://localhost:3001 | Supabase Studio (login: supabase / DASHBOARD_PASSWORD) |
 
 Stop: `docker compose down`
@@ -161,7 +156,7 @@ Best for frontend work — Next.js runs natively with fast refresh while Supabas
 
 ```bash
 # Start only the backend services (no app container)
-docker compose up -d db kong auth rest realtime storage imgproxy meta mailpit
+docker compose up -d db kong auth rest realtime storage imgproxy meta
 
 # In a separate terminal, run the Next.js dev server
 npm install

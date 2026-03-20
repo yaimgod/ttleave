@@ -27,7 +27,7 @@ Before going to logs, be precise about the symptom:
 | Error message shown (e.g. "Invalid login credentials") | GoTrue rejected the credentials — the problem is in auth itself |
 | Spinner then nothing | Client-side JS threw a silent error — check the browser console |
 | Form submits, then redirected back to login | Login succeeded but something server-side failed after |
-| Confirmation email never arrived | SMTP or Mailpit issue |
+| Confirmation email never arrived | SMTP misconfiguration — check all `SMTP_*` vars and provider logs |
 | Login works but app is blank/broken | Session was established but a data fetch (RLS) failed |
 
 Open the **browser developer tools** (F12) → Network tab → filter by `auth/v1` and watch what happens during login. Every Supabase auth call goes through Kong at `/auth/v1/*`.

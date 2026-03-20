@@ -12,7 +12,7 @@ A self-hosted countdown and event tracking app. Create events with target dates,
 | API gateway | Kong 2.8 (DB-less) |
 | Realtime | Supabase Realtime |
 | Storage | Supabase Storage + imgproxy |
-| Mail | Mailpit (local catch-all relay) |
+| Mail | Real transactional SMTP (e.g. Resend) |
 | Deployment | Docker Compose |
 
 ## Quick start
@@ -24,7 +24,8 @@ docker compose up -d
 ```
 
 Open **http://localhost:3000**.
-Browse caught emails (confirmations, resets) at **http://localhost:8025**.
+
+> **Email / SMTP:** A real transactional SMTP provider (e.g. [Resend](https://resend.com)) is required for auth emails (confirmation, password reset). Set the `SMTP_*` variables in `.env` before starting the stack — see `.env.supabase.example` for the full reference. For local dev you can set `ENABLE_EMAIL_AUTOCONFIRM=true` in `.env` to skip email verification entirely.
 
 ## Documentation
 

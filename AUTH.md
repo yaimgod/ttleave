@@ -7,7 +7,7 @@ TTLeave uses **Supabase GoTrue** for authentication. All auth flows go through K
 ```
 Browser  →  Kong (:8001)  →  GoTrue (auth)  →  PostgreSQL (auth schema)
                                     ↓
-                               Mailpit / real SMTP (emails)
+                               Real SMTP provider (emails)
 ```
 
 After a successful login, GoTrue issues a **JWT** signed with `JWT_SECRET`. The browser sends this JWT as `Authorization: Bearer <token>` on every subsequent API call. Kong validates the key, PostgREST uses the JWT claims to enforce RLS policies.
@@ -26,21 +26,26 @@ Password reset follows the same pattern (reset email → link → new password f
 
 ### Email delivery
 
-By default, all emails go to **Mailpit** (the local mail catcher). No emails reach real inboxes.
-Browse caught emails at `http://localhost:8025` (or via SSH tunnel on a remote server).
+Auth emails (confirmation, password reset, invite) are sent via a real transactional SMTP provider.
+Configure the `SMTP_*` variables in `.env` before starting the stack.
 
-### Switching to a real mail provider
+**Recommended: [Resend](https://resend.com)** (free tier: 100 emails/day, 3 000/month)
+1. Sign up at resend.com
+2. Domains → Add your domain → verify the DNS records shown
+3. Generate an API key
 
-Once you have a domain, update `.env`:
+Then set in `.env`:
 ```env
-SMTP_HOST=smtp.resend.com          # or smtp.mailgun.org, email-smtp.us-east-1.amazonaws.com, etc.
+SMTP_HOST=smtp.resend.com
 SMTP_PORT=587
-SMTP_USER=resend                   # your provider's username
-SMTP_PASS=re_xxxxxxxxxxxx          # API key or password
+SMTP_USER=resend
+SMTP_PASS=re_YOUR_API_KEY
 SMTP_ADMIN_EMAIL=noreply@yourdomain.com  # must be a verified sender on that domain
 ```
 
-Then restart auth:
+Other providers: Mailgun, Postmark, Amazon SES, Brevo — adjust `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS` accordingly.
+
+After changing SMTP settings, restart auth:
 ```bash
 docker compose up -d --force-recreate auth
 ```
