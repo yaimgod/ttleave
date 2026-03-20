@@ -7,36 +7,32 @@ For email and OAuth configuration see **[AUTH.md](./AUTH.md)**.
 
 ## Architecture overview
 
-The single `docker-compose.yaml` uses **Docker Compose profiles** to support two modes:
+The stack is split across **two separate Docker Compose files**:
 
-| Mode | Command | Services started |
+| File | Services | Used for |
 |---|---|---|
-| **App only** | `docker compose --profile app up -d` | `app`, `nlp` |
-| **Supabase only** | `docker compose --profile supabase up -d` | all Supabase services |
-| **Full local stack** | `docker compose --profile app --profile supabase up -d` | everything |
+| `docker-compose.supabase.yaml` | db, migrate, kong, auth, rest, realtime, storage, imgproxy, meta, studio | Coolify Supabase resource / local Supabase stack |
+| `docker-compose.yaml` | app (Next.js), nlp (BERT sidecar) | Coolify App resource / local app stack |
 
-Each profile is **fully isolated** — `--profile supabase` starts only Supabase,
-`--profile app` starts only the Next.js app and NLP sidecar.
+The Supabase file **creates** the shared Docker network `ttleave_shared` (attachable).
+The App file **joins** that network so the `app` container can reach `http://kong:8000` by hostname without exposing Kong to the internet.
 
 In **Coolify**, this maps to **two separate resources** from the same Git repo:
 
 ```
 ┌─────────────────────────────────┐   ┌─────────────────────────────────┐
 │  Resource 1: Supabase           │   │  Resource 2: App                │
-│  profile: supabase              │   │  profile: app                   │
+│  file: docker-compose.supabase  │   │  file: docker-compose.yaml      │
 │                                 │   │                                 │
 │  db, migrate, kong, auth,       │   │  app (Next.js)                  │
 │  rest, realtime, storage,       │   │  nlp (BERT sidecar)             │
 │  imgproxy, meta, studio         │   │                                 │
 │                                 │   │  → connects to kong:8000 via    │
-│  Network: supabase_net          │◄──┤    shared Docker network        │
+│  Creates: ttleave_shared        │◄──┤    ttleave_shared network       │
 └─────────────────────────────────┘   └─────────────────────────────────┘
          api.yourdomain.com                   app.yourdomain.com
          (Kong — port 8001)                   (Next.js — port 3000)
 ```
-
-The App resource joins the Supabase resource's network so that `http://kong:8000`
-resolves from inside the `app` container without exposing Kong to the internet.
 
 ---
 
@@ -66,13 +62,12 @@ You'll need these values in both Coolify resources.
 
 ### Step 2 — Resource 1: Supabase
 
-This resource starts all Supabase services using the `supabase` profile.
+This resource starts all Supabase services and creates the `ttleave_shared` Docker network.
 
 1. In Coolify → **New Resource → Docker Compose**
 2. Connect your Git repo (this repository)
-3. Set **Compose file**: `docker-compose.yaml`
-4. Set **Docker Compose Profile**: `supabase`
-5. **Environment Variables** — paste all values from `.env.supabase.example`:
+3. Set **Compose file**: `docker-compose.supabase.yaml`
+4. **Environment Variables** — paste all values from `.env.supabase.example`:
 
 | Variable | Value |
 |---|---|
@@ -100,8 +95,9 @@ This resource starts all Supabase services using the `supabase` profile.
 > automatically to form the full link (e.g. `https://api.yourdomain.com/auth/v1/verify?token=...`).
 > Do not put a full URL here.
 
-6. **Proxy** → point `api.yourdomain.com` → port `8001` — enable HTTPS
-7. Click **Deploy**
+5. **Proxy** → point `api.yourdomain.com` → port `8001` — enable HTTPS
+6. Click **Deploy** — wait for all services to be healthy (~2 min)
+7. Note the **Docker network name** Coolify created for this resource (visible under the resource's **Network** tab — it will be based on `ttleave_shared`)
 
 > Studio is bound to `127.0.0.1:3001` only. Access via SSH tunnel:
 > ```bash
@@ -113,13 +109,12 @@ This resource starts all Supabase services using the `supabase` profile.
 
 ### Step 3 — Resource 2: App
 
-This resource starts only `app` and `nlp` using the `app` profile.
+This resource starts `app` (Next.js) and `nlp` (BERT sidecar).
 
 1. In Coolify → **New Resource → Docker Compose**
 2. Connect the **same Git repo**
 3. Set **Compose file**: `docker-compose.yaml`
-4. Set **Docker Compose Profile**: `app`
-5. **Environment Variables** — paste all values from `.env.app.example`:
+4. **Environment Variables** — paste all values from `.env.app.example`:
 
 | Variable | Value |
 |---|---|
@@ -130,14 +125,13 @@ This resource starts only `app` and `nlp` using the `app` profile.
 | `SUPABASE_URL` | `http://kong:8000` *(internal — do not change)* |
 | `NLP_SERVICE_URL` | `http://nlp:8080` *(internal — do not change)* |
 
-6. **Proxy** → point `app.yourdomain.com` → port `3000` — enable HTTPS
-7. **Network** → join the Supabase resource's Docker network
-   (Coolify UI: Resource settings → Networks → attach `<supabase-resource>_supabase_net`)
+5. **Proxy** → point `app.yourdomain.com` → port `3000` — enable HTTPS
+6. **Networks** → go to the App resource's **Networks** tab → connect it to the Supabase resource's network (the name from step 2.7)
    This allows the `app` container to reach `kong:8000` by hostname.
-8. Click **Deploy**
+7. Click **Deploy**
 
 > `SUPABASE_URL=http://kong:8000` works because both resources share the
-> same Docker network. Kong is **never** exposed directly to the internet.
+> `ttleave_shared` Docker network. Kong is **never** exposed directly to the internet.
 
 ---
 
@@ -146,7 +140,7 @@ This resource starts only `app` and `nlp` using the `app` profile.
 In each resource's settings enable **Webhook / Auto Deploy** so pushes to
 the connected branch trigger a new deployment automatically.
 
-> ⚠️ Only the **App** resource needs to rebuild on every push (Next.js code).
+> Only the **App** resource needs to rebuild on every push (Next.js code).
 > The **Supabase** resource only needs redeployment when Supabase config or
 > migrations change.
 
@@ -156,25 +150,31 @@ the connected branch trigger a new deployment automatically.
 
 ### Option A — Full Docker stack (recommended, production-like)
 
-Starts all services including Supabase using the `supabase` profile.
+Starts all services including Supabase, mirroring the two-file Coolify setup.
 
 ```bash
-cp .env.example .env
-bash scripts/generate-secrets.sh   # paste output into .env
+cp .env.supabase.example .env.supabase
+cp .env.app.example .env.app
+bash scripts/generate-secrets.sh   # paste output into both env files
 ```
 
-Set local URLs in `.env`:
+Set local URLs in `.env.supabase`:
 ```env
 SUPABASE_PUBLIC_URL=http://localhost:8001
 API_EXTERNAL_URL=http://localhost:8001
-NEXT_PUBLIC_SUPABASE_URL=http://localhost:8001
 SITE_URL=http://localhost:3000
+```
+
+Set local URLs in `.env.app`:
+```env
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:8001
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-Start everything:
+Start everything (Supabase first — it creates the `ttleave_shared` network):
 ```bash
-docker compose --profile app --profile supabase up -d
+docker compose -f docker-compose.supabase.yaml up -d
+docker compose up -d --build
 ```
 
 | URL | What |
@@ -183,7 +183,11 @@ docker compose --profile app --profile supabase up -d
 | http://localhost:8001 | Supabase API (Kong) |
 | http://localhost:3001 | Supabase Studio (login: supabase / DASHBOARD_PASSWORD) |
 
-Stop: `docker compose --profile app --profile supabase down`
+Stop:
+```bash
+docker compose down
+docker compose -f docker-compose.supabase.yaml down
+```
 
 ---
 
@@ -192,18 +196,18 @@ Stop: `docker compose --profile app --profile supabase down`
 Supabase runs in Docker; Next.js runs natively with hot reload.
 
 ```bash
-# Start only Supabase services (no app container)
-docker compose --profile supabase up -d
+# Start only Supabase services
+docker compose -f docker-compose.supabase.yaml up -d
 
 # In a separate terminal — run the Next.js dev server
 npm install
 npm run dev
 ```
 
-The dev server reads `.env` directly — ensure `NEXT_PUBLIC_SUPABASE_URL=http://localhost:8001`
+The dev server reads `.env.app` directly — ensure `NEXT_PUBLIC_SUPABASE_URL=http://localhost:8001`
 and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set there.
 
-Stop: `Ctrl+C`, then `docker compose --profile supabase down`
+Stop: `Ctrl+C`, then `docker compose -f docker-compose.supabase.yaml down`
 
 ---
 
@@ -213,8 +217,8 @@ Use this when Supabase is already running elsewhere (e.g. another machine or
 a Coolify Supabase resource you've already deployed).
 
 ```bash
-# Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_URL in .env to point at your Supabase instance
-docker compose --profile app up -d   # starts app + nlp only
+# Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_URL in .env.app to point at your Supabase instance
+docker compose up -d --build   # starts app + nlp only
 ```
 
 ---
@@ -223,34 +227,37 @@ docker compose --profile app up -d   # starts app + nlp only
 
 ### Rebuild app after code or env changes
 ```bash
-docker compose --profile app up -d --build app
+docker compose up -d --build app
 ```
 
 ### Apply a new database migration
 ```bash
-docker compose --profile supabase exec db psql -U supabase_admin -d postgres -f - < supabase/migrations/00X_your_migration.sql
+docker compose -f docker-compose.supabase.yaml exec db psql -U supabase_admin -d postgres -f - < supabase/migrations/00X_your_migration.sql
 ```
 
 ### Restart auth after SMTP or OAuth changes
 ```bash
-docker compose --profile supabase up -d --force-recreate auth
+docker compose -f docker-compose.supabase.yaml up -d --force-recreate auth
 ```
 
 ### View logs
 ```bash
-docker compose --profile app logs -f app
-docker compose --profile supabase logs -f auth
-docker compose --profile app logs -f nlp
+docker compose logs -f app
+docker compose -f docker-compose.supabase.yaml logs -f auth
+docker compose logs -f nlp
 ```
 
 ### Check all service health
 ```bash
-docker compose --profile app --profile supabase ps
+docker compose ps
+docker compose -f docker-compose.supabase.yaml ps
 ```
 All services should show `(healthy)`. The `migrate` service shows `Exited (0)` — this is correct.
 
 ### Reset database (deletes all data)
 ```bash
-docker compose --profile app --profile supabase down -v
-docker compose --profile app --profile supabase up -d
+docker compose down
+docker compose -f docker-compose.supabase.yaml down -v
+docker compose -f docker-compose.supabase.yaml up -d
+docker compose up -d --build
 ```

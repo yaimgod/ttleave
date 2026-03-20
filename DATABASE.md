@@ -4,7 +4,7 @@ TTLeave uses **PostgreSQL 15** via the `supabase/postgres` image, which ships wi
 
 ## Migrations
 
-Migrations live in `supabase/migrations/` and are applied by the `migrate` service on every `docker compose up`. They are **idempotent** — the migrate service checks whether the `profiles` table already exists and skips if it does.
+Migrations live in `supabase/migrations/` and are applied by the `migrate` service (part of `docker-compose.supabase.yaml`) on every deploy. They are **idempotent** — safe to re-run.
 
 | File | What it creates |
 |---|---|
@@ -12,11 +12,18 @@ Migrations live in `supabase/migrations/` and are applied by the `migrate` servi
 | `002_rls_policies.sql` | Row Level Security policies + `is_admin`, `is_group_member` helpers |
 | `003_functions_triggers.sql` | `handle_new_user`, `set_updated_at`, `handle_group_created`, `activate_chain_successors` |
 | `004_realtime_publication.sql` | Adds `events`, `event_comments`, `date_adjustments` to the Realtime publication |
+| `005_nlp_linear_regression.sql` | NLP feedback table + linear regression columns (`lr_slope`, `lr_intercept`, etc.) |
+| `006_*.sql` | Additional NLP/scoring schema updates |
+| `007_*.sql` | Additional NLP/scoring schema updates |
+
+Migrations 005–007 are applied on every deploy (always re-run, fully idempotent).
 
 To reset the database completely (deletes all data):
 ```bash
-docker compose down -v
-docker compose up -d
+docker compose down
+docker compose -f docker-compose.supabase.yaml down -v
+docker compose -f docker-compose.supabase.yaml up -d
+docker compose up -d --build
 ```
 
 ---

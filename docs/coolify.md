@@ -100,7 +100,7 @@ Wait for propagation before proceeding (check with `dig masteroradmin.space`).
 
 1. In Coolify → **New Resource** → **Docker Compose**
 2. **Source**: same Git repo, branch `main`
-3. **Compose file**: `docker-compose.app.yaml`
+3. **Compose file**: `docker-compose.yaml`
 4. **Domain**: `masteroradmin.space`
    - Port: `3000`
    - Enable HTTPS
@@ -184,23 +184,21 @@ If these don't match, auth will fail with JWT errors or redirect loops.
 
 ## Local Development
 
-### Full stack (everything in one command):
+### Full stack (mirrors Coolify setup exactly):
 ```bash
-cp .env.example .env
-bash scripts/generate-secrets.sh   # paste output into .env
-docker compose --profile supabase up -d
-```
-
-### Separate stacks (mirrors Coolify setup):
-```bash
-# Terminal 1 — Supabase
 cp .env.supabase.example .env.supabase  # fill in values
+cp .env.app.example .env.app            # fill in values
+bash scripts/generate-secrets.sh        # paste output into both env files
+
+# Start Supabase first — it creates the ttleave_shared Docker network
 docker compose -f docker-compose.supabase.yaml up -d
 
-# Terminal 2 — App
-cp .env.app.example .env.app  # fill in values
-docker compose -f docker-compose.app.yaml up -d
+# Then start the app (joins ttleave_shared automatically)
+docker compose up -d --build
+```
 
-# Connect the app to the Supabase network
-docker network connect ttleave_supabase_net ttleave-app-1
+### Stop everything:
+```bash
+docker compose down
+docker compose -f docker-compose.supabase.yaml down
 ```

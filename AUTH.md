@@ -27,14 +27,14 @@ Password reset follows the same pattern (reset email → link → new password f
 ### Email delivery
 
 Auth emails (confirmation, password reset, invite) are sent via a real transactional SMTP provider.
-Configure the `SMTP_*` variables in `.env` before starting the stack.
+Configure the `SMTP_*` variables in `.env.supabase` before starting the stack.
 
 **Recommended: [Resend](https://resend.com)** (free tier: 100 emails/day, 3 000/month)
 1. Sign up at resend.com
 2. Domains → Add your domain → verify the DNS records shown
 3. Generate an API key
 
-Then set in `.env`:
+Then set in `.env.supabase`:
 ```env
 SMTP_HOST=smtp.resend.com
 SMTP_PORT=587
@@ -47,23 +47,23 @@ Other providers: Mailgun, Postmark, Amazon SES, Brevo — adjust `SMTP_HOST`, `S
 
 After changing SMTP settings, restart auth:
 ```bash
-docker compose up -d --force-recreate auth
+docker compose -f docker-compose.supabase.yaml up -d --force-recreate auth
 ```
 
 ### Skip email confirmation (local dev only)
 
-To bypass confirmation during development, set in `.env`:
+To bypass confirmation during development, set in `.env.supabase`:
 ```env
 ENABLE_EMAIL_AUTOCONFIRM=true
 ```
-Then `docker compose up -d --force-recreate auth`. **Never use this in production.**
+Then `docker compose -f docker-compose.supabase.yaml up -d --force-recreate auth`. **Never use this in production.**
 
 ---
 
 ## Google OAuth
 
 ### Status
-Google OAuth is **enabled** in the stack. The `ENABLE_GOOGLE_AUTH`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` variables are set in `.env` and the "Continue with Google" button is shown on the login and signup pages.
+Google OAuth is **enabled** in the stack. The `ENABLE_GOOGLE_AUTH`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` variables are set in `.env.supabase` and the "Continue with Google" button is shown on the login and signup pages.
 
 ### Requirements
 - A **real public domain** with HTTPS — Google OAuth does not work on `localhost` for production apps.
@@ -76,7 +76,7 @@ Google OAuth is **enabled** in the stack. The `ENABLE_GOOGLE_AUTH`, `GOOGLE_CLIE
    ```
    https://api.yourdomain.com/auth/v1/callback
    ```
-4. Copy the **Client ID** and **Client Secret** into `.env`:
+4. Copy the **Client ID** and **Client Secret** into `.env.supabase`:
    ```env
    ENABLE_GOOGLE_AUTH=true
    GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
@@ -84,7 +84,7 @@ Google OAuth is **enabled** in the stack. The `ENABLE_GOOGLE_AUTH`, `GOOGLE_CLIE
    ```
 5. Restart auth:
    ```bash
-   docker compose up -d --force-recreate auth
+   docker compose -f docker-compose.supabase.yaml up -d --force-recreate auth
    ```
 
 ---
@@ -103,14 +103,14 @@ To add it:
    ```
 3. Copy the **Client ID** and generate a **Client Secret**
 
-### Step 2 — Add env vars to `.env`
+### Step 2 — Add env vars to `.env.supabase`
 ```env
 ENABLE_GITHUB_AUTH=true
 GITHUB_CLIENT_ID=your-client-id
 GITHUB_CLIENT_SECRET=your-client-secret
 ```
 
-### Step 3 — Add env vars to docker-compose.yml
+### Step 3 — Add env vars to docker-compose.supabase.yaml
 In the `auth` service environment block, add:
 ```yaml
 GOTRUE_EXTERNAL_GITHUB_ENABLED: ${ENABLE_GITHUB_AUTH:-false}
@@ -142,8 +142,8 @@ const signInWithGitHub = async () => {
 
 ### Step 5 — Apply
 ```bash
-docker compose up -d --build app
-docker compose up -d --force-recreate auth
+docker compose up -d --build
+docker compose -f docker-compose.supabase.yaml up -d --force-recreate auth
 ```
 
 ---
