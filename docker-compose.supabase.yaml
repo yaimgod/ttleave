@@ -4,14 +4,15 @@
 # Deploys the full self-hosted Supabase infrastructure:
 #   db · migrate · kong · auth · rest · realtime · storage · imgproxy · meta · studio
 #
-# Creates the shared Docker network "ttleave_shared" (attachable) so the App
-# stack (docker-compose.yaml) can join it and reach Kong by hostname.
+# Uses the external shared network "ttleave_shared" to communicate with the App
+# stack. Create it once on the host: docker network create --attachable ttleave_shared
 #
 # COOLIFY — deploy as a separate "Docker Compose" resource.
 #   Compose file: docker-compose.supabase.yaml
 #   Env file: paste contents of .env.supabase into Coolify's env panel.
 #
-# LOCAL DEV — run this first, then start the app:
+# LOCAL DEV — create the shared network once, then run both stacks:
+#   docker network create --attachable ttleave_shared
 #   docker compose -f docker-compose.supabase.yaml up -d
 #   docker compose up -d --build
 #
@@ -19,7 +20,8 @@
 #   1. cp .env.supabase.example .env.supabase
 #   2. bash scripts/generate-secrets.sh → paste output into .env.supabase
 #   3. Fill in SMTP_* and URL vars
-#   4. docker compose -f docker-compose.supabase.yaml up -d
+#   4. docker network create --attachable ttleave_shared
+#   5. docker compose -f docker-compose.supabase.yaml up -d
 #
 # RESET (wipe DB and start fresh):
 #   docker compose -f docker-compose.supabase.yaml down -v
@@ -27,18 +29,14 @@
 
 networks:
   supabase_net:
-    # Fixed name so docker-compose.yaml can join as external without knowing
-    # the Compose project name. Must be attachable so the App stack containers
-    # can connect at runtime (locally and via Coolify's "Connect Network" UI).
-    name: ttleave_shared
-    attachable: true
-  coolify:
-    # Coolify's Traefik proxy network. Kong must be on this network so
-    # Traefik can route api.yourdomain.com → kong:8000.
-    # Declared external so Compose never tries to create or delete it.
+    # Pre-created external network shared with the App stack.
+    # Create once on the VPS: docker network create --attachable ttleave_shared
+    # Neither stack owns it so redeploys never try to remove it.
     external: true
-    driver: bridge
-    attachable: true
+    name: ttleave_shared
+  coolify:
+    # Coolify's Traefik proxy network — pre-existing, never created/deleted here.
+    external: true
 
 volumes:
   db-data:
