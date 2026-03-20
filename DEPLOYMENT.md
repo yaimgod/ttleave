@@ -11,8 +11,12 @@ The single `docker-compose.yaml` uses **Docker Compose profiles** to support two
 
 | Mode | Command | Services started |
 |---|---|---|
-| **App only** | `docker compose up -d` | `app`, `nlp` |
-| **Full stack** | `docker compose --profile supabase up -d` | `app`, `nlp` + all Supabase services |
+| **App only** | `docker compose --profile app up -d` | `app`, `nlp` |
+| **Supabase only** | `docker compose --profile supabase up -d` | all Supabase services |
+| **Full local stack** | `docker compose --profile app --profile supabase up -d` | everything |
+
+Each profile is **fully isolated** — `--profile supabase` starts only Supabase,
+`--profile app` starts only the Next.js app and NLP sidecar.
 
 In **Coolify**, this maps to **two separate resources** from the same Git repo:
 
@@ -161,7 +165,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 Start everything:
 ```bash
-docker compose --profile supabase up -d
+docker compose --profile app --profile supabase up -d
 ```
 
 | URL | What |
@@ -170,7 +174,7 @@ docker compose --profile supabase up -d
 | http://localhost:8001 | Supabase API (Kong) |
 | http://localhost:3001 | Supabase Studio (login: supabase / DASHBOARD_PASSWORD) |
 
-Stop: `docker compose --profile supabase down`
+Stop: `docker compose --profile app --profile supabase down`
 
 ---
 
@@ -179,8 +183,8 @@ Stop: `docker compose --profile supabase down`
 Supabase runs in Docker; Next.js runs natively with hot reload.
 
 ```bash
-# Start only Supabase services (supabase profile, no app container)
-docker compose --profile supabase up -d db kong auth rest realtime storage imgproxy meta migrate
+# Start only Supabase services (no app container)
+docker compose --profile supabase up -d
 
 # In a separate terminal — run the Next.js dev server
 npm install
@@ -201,7 +205,7 @@ a Coolify Supabase resource you've already deployed).
 
 ```bash
 # Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_URL in .env to point at your Supabase instance
-docker compose up -d   # starts app + nlp only
+docker compose --profile app up -d   # starts app + nlp only
 ```
 
 ---
@@ -210,9 +214,7 @@ docker compose up -d   # starts app + nlp only
 
 ### Rebuild app after code or env changes
 ```bash
-docker compose --profile supabase up -d --build app
-# or app-only mode:
-docker compose up -d --build app
+docker compose --profile app up -d --build app
 ```
 
 ### Apply a new database migration
@@ -227,19 +229,19 @@ docker compose --profile supabase up -d --force-recreate auth
 
 ### View logs
 ```bash
-docker compose logs -f app
-docker compose logs -f auth
-docker compose logs -f nlp
+docker compose --profile app logs -f app
+docker compose --profile supabase logs -f auth
+docker compose --profile app logs -f nlp
 ```
 
 ### Check all service health
 ```bash
-docker compose --profile supabase ps
+docker compose --profile app --profile supabase ps
 ```
 All services should show `(healthy)`. The `migrate` service shows `Exited (0)` — this is correct.
 
 ### Reset database (deletes all data)
 ```bash
-docker compose --profile supabase down -v
-docker compose --profile supabase up -d
+docker compose --profile app --profile supabase down -v
+docker compose --profile app --profile supabase up -d
 ```

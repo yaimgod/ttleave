@@ -1,32 +1,28 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # TTLeave — Docker Compose (profiles-based, single file)
 #
-# TWO MODES:
+# PROFILES — each profile is fully isolated:
 #
-#   App only  (Coolify / external Supabase resource):
-#     docker compose up -d
-#     → starts: app, nlp
-#     → Supabase runs separately as its own Coolify resource
-#     → In Coolify: connect the Supabase resource network to this service
-#       so that http://kong:8000 resolves from inside the app container
+#   --profile app       → app, nlp only          (Coolify: App resource)
+#   --profile supabase  → Supabase services only  (Coolify: Supabase resource)
+#   both profiles       → full local stack        (local dev)
 #
-#   Full local stack  (app + self-hosted Supabase):
-#     docker compose --profile supabase up -d
-#     → starts: app, nlp, db, migrate, kong, auth, rest, realtime,
-#               storage, imgproxy, meta, studio
+# COOLIFY — two separate resources from this same file:
+#   Resource 1 (Supabase):  set profile = supabase
+#   Resource 2 (App):       set profile = app
+#                           attach to Supabase resource's Docker network
+#                           so http://kong:8000 resolves from inside app
+#
+# LOCAL DEV — full stack (app + Supabase):
+#   docker compose --profile app --profile supabase up -d
 #
 # BEFORE FIRST RUN (full stack):
 #   1. cp .env.example .env
 #   2. bash scripts/generate-secrets.sh  → paste output into .env
 #   3. Fill in SMTP_* and URL vars in .env
 #   4. If db previously failed to start (e.g. "schema auth does not exist"):
-#      docker compose --profile supabase down -v
-#   5. docker compose --profile supabase up -d
-#
-# COOLIFY DEPLOYMENT:
-#   - Use "Docker Compose" deployment type (no --profile flag → app+nlp only)
-#   - Set all env vars in Coolify's Environment Variables panel
-#   - App proxy: port 3000 → masteroradmin.space
+#      docker compose --profile app --profile supabase down -v
+#   5. docker compose --profile app --profile supabase up -d
 # ══════════════════════════════════════════════════════════════════════════════
 
 networks:
@@ -44,8 +40,9 @@ services:
   # Multilingual sentiment model: nlptown/bert-base-multilingual-uncased-sentiment
   # Exposes POST /score → { score: 0-1 float, label: string }
   # Model weights are fully baked into the image at build time (see nlp-service/Dockerfile).
-  # No volume needed — the image is self-contained. No profile → always starts.
+  # No volume needed — the image is self-contained. Profile: app.
   nlp:
+    profiles: [app]
     build:
       context: ./nlp-service
       dockerfile: Dockerfile
@@ -71,8 +68,9 @@ services:
   # SUPABASE_URL (server-side) is hardcoded to http://kong:8000 — works for both
   # local full-stack and Coolify (join the Supabase resource network so kong
   # is reachable by hostname from inside the container).
-  # No profile → always starts regardless of mode.
+  # Profile: app.
   app:
+    profiles: [app]
     build:
       context: .
       dockerfile: Dockerfile
