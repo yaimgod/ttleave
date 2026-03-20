@@ -16,7 +16,7 @@ const SUPABASE_URL =
 // cookie "sb-localhost-auth-token". We must read that same cookie name here.
 function getCookieName(url: string): string {
   try {
-    const hostname = new URL(url).hostname.split(".")[0];
+    const hostname = new URL(url).hostname;
     return `sb-${hostname}-auth-token`;
   } catch {
     return "sb-localhost-auth-token";
