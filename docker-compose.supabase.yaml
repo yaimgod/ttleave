@@ -1,33 +1,38 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# TTLeave — Supabase-only Docker Compose
-# ══════════════════════════════════════════════════════════════════════════════
+# TTLeave — Supabase stack
 #
-# Starts: db, migrate, kong, auth, rest, realtime, storage, imgproxy, meta, studio
-# The Next.js app and NLP sidecar are in docker-compose.app.yaml.
+# Deploys the full self-hosted Supabase infrastructure:
+#   db · migrate · kong · auth · rest · realtime · storage · imgproxy · meta · studio
 #
-# COOLIFY:
-#   Deploy this file as its own Coolify resource (Docker Compose type).
-#   Set env vars in Coolify's Environment Variables panel — see .env.supabase.example.
-#   After deploying, connect the App resource to this resource's network
-#   in the Coolify UI so http://kong:8000 resolves from the app container.
+# Creates the shared Docker network "ttleave_shared" (attachable) so the App
+# stack (docker-compose.yaml) can join it and reach Kong by hostname.
 #
-# LOCAL:
+# COOLIFY — deploy as a separate "Docker Compose" resource.
+#   Compose file: docker-compose.supabase.yaml
+#   Env file: paste contents of .env.supabase into Coolify's env panel.
+#
+# LOCAL DEV — run this first, then start the app:
 #   docker compose -f docker-compose.supabase.yaml up -d
-#   Then start the app: docker compose -f docker-compose.app.yaml up -d
-#
-# LOCAL FULL STACK (everything in one command):
-#   Use docker-compose.yaml with --profile supabase instead.
+#   docker compose up -d --build
 #
 # FIRST RUN:
-#   bash scripts/generate-secrets.sh  → paste into .env.supabase
-#   docker compose -f docker-compose.supabase.yaml up -d
+#   1. cp .env.supabase.example .env.supabase
+#   2. bash scripts/generate-secrets.sh → paste output into .env.supabase
+#   3. Fill in SMTP_* and URL vars
+#   4. docker compose -f docker-compose.supabase.yaml up -d
+#
+# RESET (wipe DB and start fresh):
+#   docker compose -f docker-compose.supabase.yaml down -v
 # ══════════════════════════════════════════════════════════════════════════════
 
 networks:
   supabase_net:
+    # Fixed name so docker-compose.yaml can join as external without knowing
+    # the Compose project name. Must be attachable so the App stack containers
+    # can connect at runtime (locally and via Coolify's "Connect Network" UI).
+    name: ttleave_shared
     driver: bridge
-    # Named explicitly so the app stack can attach to it.
-    name: ${COMPOSE_PROJECT_NAME:-ttleave}_supabase_net
+    attachable: true
 
 volumes:
   db-data:
@@ -37,7 +42,6 @@ volumes:
 services:
 
   # ── POSTGRESQL ──────────────────────────────────────────────────────────────
-  # Internal only — port 5432 is NOT exposed to the host.
   db:
     image: supabase/postgres:15.8.1.085
     restart: unless-stopped
@@ -69,7 +73,8 @@ services:
       - log_min_messages=fatal
 
   # ── MIGRATIONS ───────────────────────────────────────────────────────────────
-  # One-shot: sets role passwords + applies SQL migrations idempotently.
+  # One-shot container: sets role passwords then applies all SQL migrations.
+  # Runs on every deploy — all migrations are idempotent.
   migrate:
     image: supabase/postgres:15.8.1.085
     restart: "no"
@@ -117,19 +122,20 @@ services:
           echo "_realtime schema ready."
         fi
 
-        echo "Applying incremental migrations..."
-        psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" \
-          -f "/migrations/005_nlp_linear_regression.sql"
-        echo "All done."
+        echo "Applying incremental migrations (idempotent)..."
+        for f in \
+          /migrations/005_nlp_linear_regression.sql \
+          /migrations/006_fix_nlp_feedback_duplicates.sql \
+          /migrations/007_reset_nlp_model_to_new_defaults.sql; do
+          echo "  -> $$f"
+          psql "postgresql://supabase_admin:$$POSTGRES_PASSWORD@db:5432/postgres" -f "$$f"
+        done
+        echo "All migrations done."
     depends_on:
       db:
         condition: service_healthy
 
-  # ── KONG API GATEWAY ────────────────────────────────────────────────────────
-  # Port 8001 exposed to host (avoids Coolify Traefik's 8000).
-  # In production behind Coolify/Traefik: Traefik routes to Kong via the
-  # internal network, so you can remove the ports mapping and let Traefik
-  # expose Kong at https://api.masteroradmin.space instead.
+  # ── KONG API GATEWAY ─────────────────────────────────────────────────────────
   kong:
     image: kong:2.8.1
     restart: unless-stopped
@@ -162,8 +168,7 @@ services:
       retries: 10
       start_period: 20s
 
-  # ── GOTRUE (AUTH) ───────────────────────────────────────────────────────────
-  # Internal only — port 9999 is NOT exposed to the host.
+  # ── GOTRUE (AUTH) ─────────────────────────────────────────────────────────────
   auth:
     image: supabase/gotrue:v2.186.0
     restart: unless-stopped
@@ -212,8 +217,7 @@ services:
       retries: 10
       start_period: 20s
 
-  # ── POSTGREST (REST API) ────────────────────────────────────────────────────
-  # Internal only — port 3000 is NOT exposed to the host.
+  # ── POSTGREST (REST API) ──────────────────────────────────────────────────────
   rest:
     image: postgrest/postgrest:v14.5
     restart: unless-stopped
@@ -240,8 +244,7 @@ services:
       retries: 10
       start_period: 15s
 
-  # ── REALTIME ────────────────────────────────────────────────────────────────
-  # Internal only — port 4000 is NOT exposed to the host.
+  # ── REALTIME ──────────────────────────────────────────────────────────────────
   realtime:
     image: supabase/realtime:v2.76.5
     restart: unless-stopped
@@ -275,8 +278,7 @@ services:
       retries: 10
       start_period: 30s
 
-  # ── STORAGE ─────────────────────────────────────────────────────────────────
-  # Internal only — port 5000 is NOT exposed to the host.
+  # ── STORAGE ───────────────────────────────────────────────────────────────────
   storage:
     image: supabase/storage-api:v1.37.8
     restart: unless-stopped
@@ -305,22 +307,13 @@ services:
       imgproxy:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://127.0.0.1:5000/status",
-        ]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/status"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
 
-  # ── IMGPROXY ─────────────────────────────────────────────────────────────────
-  # Internal only — port 5001 is NOT exposed to the host.
+  # ── IMGPROXY ──────────────────────────────────────────────────────────────────
   imgproxy:
     image: darthsim/imgproxy:v3.30.1
     restart: unless-stopped
@@ -338,8 +331,7 @@ services:
       retries: 10
       start_period: 10s
 
-  # ── PG-META (database management API) ───────────────────────────────────────
-  # Internal only — port 8080 is NOT exposed to the host.
+  # ── PG-META ───────────────────────────────────────────────────────────────────
   meta:
     image: supabase/postgres-meta:v0.95.2
     restart: unless-stopped
@@ -356,10 +348,9 @@ services:
       db:
         condition: service_healthy
 
-  # ── STUDIO (Supabase Dashboard UI) ───────────────────────────────────────────
-  # Bound to 127.0.0.1:3001 — NOT accessible from the internet.
-  # Access via SSH tunnel: ssh -L 3001:localhost:3001 user@your-vps
-  # Or via Kong at http://your-vps:8001/dashboard (basic-auth protected).
+  # ── STUDIO (Supabase Dashboard UI) ────────────────────────────────────────────
+  # Bound to localhost only — access via SSH tunnel.
+  # Do NOT expose port 3001 through Coolify's proxy.
   studio:
     image: supabase/studio:2026.02.16-sha-26c615c
     restart: unless-stopped
@@ -383,7 +374,7 @@ services:
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       AUTH_JWT_SECRET: ${JWT_SECRET}
-      LOGFLARE_API_KEY: ${LOGFLARE_PUBLIC_ACCESS_TOKEN:-stub}
+      LOGFLARE_API_KEY: stub
       LOGFLARE_URL: http://localhost:4000
       NEXT_PUBLIC_ENABLE_LOGS: "true"
       NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
