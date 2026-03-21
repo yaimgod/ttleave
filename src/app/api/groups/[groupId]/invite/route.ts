@@ -6,6 +6,32 @@ import { isValidUUID } from "@/lib/utils/uuid";
 type GroupInviteInsert = Database["public"]["Tables"]["group_invites"]["Insert"];
 type Params = { params: { groupId: string } };
 
+// GET — fetch existing invite for this group (owner only)
+export async function GET(_req: Request, { params }: Params) {
+  if (!isValidUUID(params.groupId)) {
+    return NextResponse.json({ error: "Invalid group id" }, { status: 400 });
+  }
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data } = await supabase
+    .from("group_invites")
+    .select("*")
+    .eq("group_id", params.groupId)
+    .limit(1);
+
+  const rows = (data ?? []) as Array<{ token: string; [k: string]: unknown }>;
+  const result = rows.map((row) => ({
+    ...row,
+    invite_url: `${process.env.NEXT_PUBLIC_APP_URL}/join/${row.token}`,
+  }));
+
+  return NextResponse.json(result);
+}
+
 // POST — generate or regenerate invite token
 export async function POST(_req: Request, { params }: Params) {
   if (!isValidUUID(params.groupId)) {
