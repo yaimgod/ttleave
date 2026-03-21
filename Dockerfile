@@ -32,11 +32,11 @@ ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_APP_URL
 
 ENV NEXT_TELEMETRY_DISABLED=1
-# Prevent OOM on low-RAM VPS: cap heap and serialize webpack workers.
-# Next.js 14 normally spawns one worker per CPU (4+ on VPS) → ~2 GB peak.
-# WEBPACK_SINGLE_THREADED=1 sets parallelism=1 in next.config.mjs → ~700 MB peak.
-ENV NODE_OPTIONS="--max-old-space-size=1024"
-ENV WEBPACK_SINGLE_THREADED=1
+# GitHub Actions runners have 4 CPUs + 16GB RAM — no need to cap parallelism.
+# For local builds on low-RAM machines, pass: --build-arg SINGLE_THREADED=1
+ARG SINGLE_THREADED
+ENV WEBPACK_SINGLE_THREADED=${SINGLE_THREADED}
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 
 RUN npm run build
 
