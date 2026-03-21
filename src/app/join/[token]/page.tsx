@@ -45,7 +45,7 @@ export default async function JoinPage({
 
   const invite = inviteData as InviteWithGroup;
 
-  if (!invite) {
+  if (!invite || !invite.groups) {
     return (
       <div className="flex min-h-screen items-center justify-center p-4">
         <Card className="w-full max-w-sm">
