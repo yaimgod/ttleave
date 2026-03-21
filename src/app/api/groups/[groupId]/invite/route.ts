@@ -6,6 +6,32 @@ import { isValidUUID } from "@/lib/utils/uuid";
 type GroupInviteInsert = Database["public"]["Tables"]["group_invites"]["Insert"];
 type Params = { params: { groupId: string } };
 
+// GET — fetch existing invite for this group (owner only)
+export async function GET(_req: Request, { params }: Params) {
+  if (!isValidUUID(params.groupId)) {
+    return NextResponse.json({ error: "Invalid group id" }, { status: 400 });
+  }
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data } = await supabase
+    .from("group_invites")
+    .select("*")
+    .eq("group_id", params.groupId)
+    .limit(1);
+
+  const rows = (data ?? []) as Array<{ token: string; [k: string]: unknown }>;
+  const result = rows.map((row) => ({
+    ...row,
+    invite_url: `${process.env.NEXT_PUBLIC_APP_URL}/join/${row.token}`,
+  }));
+
+  return NextResponse.json(result);
+}
+
 // POST — generate or regenerate invite token
 export async function POST(_req: Request, { params }: Params) {
   if (!isValidUUID(params.groupId)) {
@@ -18,12 +44,14 @@ export async function POST(_req: Request, { params }: Params) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // Verify caller is group owner
-  const { data: membershipData } = await supabase
+  const { data: membershipData, error: membershipError } = await supabase
     .from("group_members")
     .select("role")
     .eq("group_id", params.groupId)
     .eq("user_id", user.id)
     .single();
+
+  console.log(`[invite POST] user=${user.id} group=${params.groupId} membership=${JSON.stringify(membershipData)} err=${membershipError?.message}`);
 
   const membership = membershipData as { role: string } | null;
   if (membership?.role !== "owner") {
@@ -31,7 +59,8 @@ export async function POST(_req: Request, { params }: Params) {
   }
 
   // Delete existing invite for this group (one active invite at a time)
-  await supabase.from("group_invites").delete().eq("group_id", params.groupId);
+  const { error: deleteError } = await supabase.from("group_invites").delete().eq("group_id", params.groupId);
+  console.log(`[invite POST] delete err=${deleteError?.message ?? "none"}`);
 
   // Create new invite
   const invitePayload: GroupInviteInsert = { group_id: params.groupId, created_by: user.id };
@@ -41,6 +70,7 @@ export async function POST(_req: Request, { params }: Params) {
     .select()
     .single();
 
+  console.log(`[invite POST] insert data=${JSON.stringify(data)} err=${error?.message}`);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const row = data as { token: string; [k: string]: unknown } | null;
