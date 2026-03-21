@@ -20,30 +20,29 @@ type CookieToSet = { name: string; value: string; options?: Record<string, unkno
 // For the actual HTTP network calls to GoTrue, we use SUPABASE_URL (http://kong:8000)
 // which IS reachable inside the Docker container. localhost:8001 is NOT reachable
 // inside the container — it is only available on the Docker host machine.
-function getCookieName(url: string): string {
-  try {
-    const hostname = new URL(url).hostname;
-    return `sb-${hostname}-auth-token`;
-  } catch {
-    return "sb-localhost-auth-token";
-  }
-}
+// PUBLIC URL — @supabase/ssr derives the cookie name from this, matching the browser.
+const PUBLIC_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+// INTERNAL URL — actual HTTP calls go here (faster, stays inside Docker network).
+const INTERNAL_URL = process.env.SUPABASE_URL ?? PUBLIC_URL;
 
-const COOKIE_NAME = getCookieName(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:8001");
-// Internal URL for server-side HTTP calls (reachable inside Docker container)
-const INTERNAL_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!;
+function internalFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const url =
+    typeof input === "string"
+      ? input.replace(PUBLIC_URL, INTERNAL_URL)
+      : input instanceof URL
+        ? new URL(input.toString().replace(PUBLIC_URL, INTERNAL_URL))
+        : input;
+  return fetch(url, init);
+}
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    INTERNAL_URL,
+    PUBLIC_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookieOptions: {
-        // Force the cookie name to match what the browser set (derived from public URL)
-        name: COOKIE_NAME,
-      },
+      global: { fetch: internalFetch },
       cookies: {
         getAll() {
           return request.cookies.getAll();
