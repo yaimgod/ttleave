@@ -107,3 +107,5 @@ def score(req: ScoreRequest) -> ScoreResponse:
     except Exception as exc:
         logger.error("Scoring failed: %s", exc)
         raise HTTPException(status_code=500, detail="Scoring failed") from exc
+
+# build trigger
