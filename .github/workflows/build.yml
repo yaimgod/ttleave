@@ -1,0 +1,100 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: [integ]
+
+jobs:
+  # ── Detect which services changed ─────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      nlp: ${{ steps.filter.outputs.nlp }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'Dockerfile'
+              - 'src/**'
+              - 'public/**'
+              - 'package*.json'
+              - 'next.config.*'
+              - 'tailwind.config.*'
+              - 'tsconfig*.json'
+              - 'postcss.config.*'
+            nlp:
+              - 'nlp-service/**'
+
+  # ── Build & push Next.js app ───────────────────────────────────────────────
+  build-app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ghcr.io/yaimgod/ttleave-app:latest
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+            NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_APP_URL }}
+          # Layer cache — skips unchanged layers (node_modules, .next build, etc.)
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Build & push NLP sidecar ───────────────────────────────────────────────
+  build-nlp:
+    needs: changes
+    if: needs.changes.outputs.nlp == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push NLP image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./nlp-service
+          file: nlp-service/Dockerfile
+          push: true
+          tags: ghcr.io/yaimgod/ttleave-nlp:latest
+          # Layer cache is critical here: the ~680 MB model download layer
+          # is cached as long as requirements.txt hasn't changed.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
