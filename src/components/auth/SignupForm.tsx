@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,6 +33,7 @@ const schema = z
 type FormValues = z.infer<typeof schema>;
 
 export function SignupForm() {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,7 +47,7 @@ export function SignupForm() {
     setLoading(true);
     setError(null);
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: values.email,
       password: values.password,
       options: {
@@ -58,6 +60,13 @@ export function SignupForm() {
       setLoading(false);
       return;
     }
+    // If GoTrue auto-confirmed the user (ENABLE_EMAIL_AUTOCONFIRM=true),
+    // a session is returned immediately — redirect to dashboard.
+    if (data.session) {
+      router.push("/dashboard");
+      return;
+    }
+    // Otherwise email confirmation is required — show the message.
     setSuccess(true);
     setLoading(false);
   }

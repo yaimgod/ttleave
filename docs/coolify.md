@@ -6,8 +6,8 @@ Two separate Coolify resources, both pulling from the **same Git repo**:
 
 | Resource | Compose file | Domain | Purpose |
 |---|---|---|---|
-| **Supabase** | `docker-compose.supabase.yaml` | `api.masteroradmin.space` | Database, Auth, Storage, Kong gateway |
-| **App** | `docker-compose.app.yaml` | `masteroradmin.space` | Next.js + NLP sidecar |
+| **Supabase** | `docker-compose.supabase.yaml` | `api.masterormain.space` | Database, Auth, Storage, Kong gateway |
+| **App** | `docker-compose.app.yaml` | `masterormain.space` | Next.js + NLP sidecar |
 
 ---
 
@@ -17,8 +17,8 @@ Two separate Coolify resources, both pulling from the **same Git repo**:
 
 | Service | Container port | Public URL | Notes |
 |---|---|---|---|
-| Next.js app | 3000 | `https://masteroradmin.space` | Coolify proxies via Traefik |
-| Kong gateway | 8000 (internal) → 8001 (host) | `https://api.masteroradmin.space` | Coolify proxies via Traefik |
+| Next.js app | 3000 | `https://masterormain.space` | Coolify proxies via Traefik |
+| Kong gateway | 8000 (internal) → 8001 (host) | `https://api.masterormain.space` | Coolify proxies via Traefik |
 
 ### Internal only (Docker network — never open in firewall)
 
@@ -57,11 +57,11 @@ Traefik (Coolify's built-in reverse proxy) handles all routing internally.
 Point both domains to your VPS IP:
 
 ```
-A   masteroradmin.space       →  YOUR_VPS_IP
-A   api.masteroradmin.space   →  YOUR_VPS_IP
+A   masterormain.space       →  YOUR_VPS_IP
+A   api.masterormain.space   →  YOUR_VPS_IP
 ```
 
-Wait for propagation before proceeding (check with `dig masteroradmin.space`).
+Wait for propagation before proceeding (check with `dig masterormain.space`).
 
 ---
 
@@ -70,7 +70,7 @@ Wait for propagation before proceeding (check with `dig masteroradmin.space`).
 1. In Coolify → **New Resource** → **Docker Compose**
 2. **Source**: your Git repo, branch `main`
 3. **Compose file**: `docker-compose.supabase.yaml`
-4. **Domain**: `api.masteroradmin.space`
+4. **Domain**: `api.masterormain.space`
    - Port: `8001` (Kong's host port)
    - Enable HTTPS (Traefik will issue a Let's Encrypt cert)
 5. **Environment Variables** — paste from `.env.supabase.example` with real values:
@@ -81,14 +81,14 @@ Wait for propagation before proceeding (check with `dig masteroradmin.space`).
    SERVICE_ROLE_KEY=<generated JWT>
    DASHBOARD_PASSWORD=<strong password>
    SECRET_KEY_BASE=<generated>
-   SUPABASE_PUBLIC_URL=https://api.masteroradmin.space
-   API_EXTERNAL_URL=https://api.masteroradmin.space
-   SITE_URL=https://masteroradmin.space
+   SUPABASE_PUBLIC_URL=https://api.masterormain.space
+   API_EXTERNAL_URL=https://api.masterormain.space
+   SITE_URL=https://masterormain.space
    SMTP_HOST=smtp.resend.com
    SMTP_PORT=587
    SMTP_USER=resend
    SMTP_PASS=re_YOUR_RESEND_API_KEY
-   SMTP_ADMIN_EMAIL=noreply@masteroradmin.space
+   SMTP_ADMIN_EMAIL=noreply@masterormain.space
    ... (rest from .env.supabase.example)
    ```
 6. **Deploy** — wait for all services to be healthy (~2 min).
@@ -101,15 +101,15 @@ Wait for propagation before proceeding (check with `dig masteroradmin.space`).
 1. In Coolify → **New Resource** → **Docker Compose**
 2. **Source**: same Git repo, branch `main`
 3. **Compose file**: `docker-compose.yaml`
-4. **Domain**: `masteroradmin.space`
+4. **Domain**: `masterormain.space`
    - Port: `3000`
    - Enable HTTPS
 5. **Environment Variables** — paste from `.env.app.example` with real values:
    ```
    ANON_KEY=<same value as in Supabase resource>
    SERVICE_ROLE_KEY=<same value as in Supabase resource>
-   NEXT_PUBLIC_SUPABASE_URL=https://api.masteroradmin.space
-   NEXT_PUBLIC_APP_URL=https://masteroradmin.space
+   NEXT_PUBLIC_SUPABASE_URL=https://api.masterormain.space
+   NEXT_PUBLIC_APP_URL=https://masterormain.space
    ENABLE_GOOGLE_AUTH=false
    ```
 6. **Deploy**.
@@ -143,10 +143,10 @@ After connecting, the app can resolve `http://kong:8000` for server-side Supabas
 
 ```bash
 # Kong is reachable (should return JSON)
-curl https://api.masteroradmin.space/auth/v1/health
+curl https://api.masterormain.space/auth/v1/health
 
 # App is reachable
-curl https://masteroradmin.space/api/health
+curl https://masterormain.space/api/health
 
 # NLP sidecar (internal only — test from inside the app container)
 docker exec -it <app_container> wget -qO- http://nlp:8080/health
