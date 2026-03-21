@@ -56,6 +56,11 @@ services:
   # ── NEXT.JS APP ───────────────────────────────────────────────────────────────
   app:
     image: ghcr.io/yaimgod/ttleave-app:latest
+    labels:
+      # Tell Traefik to use the app's IP on the coolify network.
+      # Without this, Traefik may pick the wrong network IP when the container
+      # is on multiple networks (coolify + supabase_net), causing 504s.
+      traefik.docker.network: coolify
     ports:
       - "3000:3000"
     networks:
