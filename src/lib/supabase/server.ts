@@ -9,19 +9,20 @@ type CookieToSet = { name: string; value: string; options?: Record<string, unkno
 const PUBLIC_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
 // INTERNAL URL — actual HTTP calls from inside the container go here.
-// http://kong:8000 is reachable inside Docker; the public domain works too
-// but internal avoids the round-trip through the internet.
 const INTERNAL_URL = process.env.SUPABASE_URL ?? PUBLIC_URL;
 
 // Custom fetch that rewrites the public Supabase URL to the internal Docker URL.
-// This lets @supabase/ssr derive the correct cookie name from PUBLIC_URL while
-// all actual network calls go to the faster internal address.
 function internalFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const urlStr = typeof input === "string" ? input : input.toString();
+  const rewritten = urlStr.replace(PUBLIC_URL, INTERNAL_URL);
+  if (rewritten !== urlStr) {
+    console.log(`[server] fetch rewrite: ${urlStr} → ${rewritten}`);
+  }
   const url =
     typeof input === "string"
-      ? input.replace(PUBLIC_URL, INTERNAL_URL)
+      ? rewritten
       : input instanceof URL
-        ? new URL(input.toString().replace(PUBLIC_URL, INTERNAL_URL))
+        ? new URL(rewritten)
         : input;
   return fetch(url, init);
 }
