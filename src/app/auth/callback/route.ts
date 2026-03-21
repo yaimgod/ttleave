@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || origin;
 
   if (code) {
-    // Log all cookie names so we can verify the PKCE code verifier cookie name
+    // Log all cookie names to diagnose PKCE code verifier cookie name mismatch
     const cookieStore = await cookies();
     const allCookieNames = cookieStore.getAll().map((c) => c.name);
     console.log("[auth/callback] cookies present:", allCookieNames);
