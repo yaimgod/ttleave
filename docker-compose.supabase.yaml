@@ -146,6 +146,10 @@ services:
     networks:
       - supabase_net
       - coolify   # must be on coolify network so Traefik can proxy api.yourdomain.com → kong:8000
+    labels:
+      # Tell Traefik to use Kong's IP on the coolify network (not supabase_net).
+      # Without this, Traefik picks the first network IP which may not be reachable.
+      traefik.docker.network: coolify
     ports:
       - "${KONG_HTTP_PORT:-8001}:8000"
     volumes:
