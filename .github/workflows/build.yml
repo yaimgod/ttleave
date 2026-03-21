@@ -4,6 +4,9 @@ on:
   push:
     branches: [integ]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # ── Detect which services changed ─────────────────────────────────────────
   changes:
