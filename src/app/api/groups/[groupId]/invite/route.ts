@@ -44,12 +44,14 @@ export async function POST(_req: Request, { params }: Params) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // Verify caller is group owner
-  const { data: membershipData } = await supabase
+  const { data: membershipData, error: membershipError } = await supabase
     .from("group_members")
     .select("role")
     .eq("group_id", params.groupId)
     .eq("user_id", user.id)
     .single();
+
+  console.log(`[invite POST] user=${user.id} group=${params.groupId} membership=${JSON.stringify(membershipData)} err=${membershipError?.message}`);
 
   const membership = membershipData as { role: string } | null;
   if (membership?.role !== "owner") {
@@ -57,7 +59,8 @@ export async function POST(_req: Request, { params }: Params) {
   }
 
   // Delete existing invite for this group (one active invite at a time)
-  await supabase.from("group_invites").delete().eq("group_id", params.groupId);
+  const { error: deleteError } = await supabase.from("group_invites").delete().eq("group_id", params.groupId);
+  console.log(`[invite POST] delete err=${deleteError?.message ?? "none"}`);
 
   // Create new invite
   const invitePayload: GroupInviteInsert = { group_id: params.groupId, created_by: user.id };
@@ -67,6 +70,7 @@ export async function POST(_req: Request, { params }: Params) {
     .select()
     .single();
 
+  console.log(`[invite POST] insert data=${JSON.stringify(data)} err=${error?.message}`);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const row = data as { token: string; [k: string]: unknown } | null;
