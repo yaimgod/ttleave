@@ -7,13 +7,18 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = getSafeRedirectPath(searchParams.get("next"));
 
+  // Behind a reverse proxy (e.g. Traefik/Coolify) request.url origin is the
+  // internal container address (0.0.0.0:3000). Use the public app URL instead.
+  const base =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || origin;
+
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`${base}${next}`);
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`);
+  return NextResponse.redirect(`${base}/login?error=auth_callback_failed`);
 }
