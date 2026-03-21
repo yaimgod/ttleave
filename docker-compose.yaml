@@ -41,7 +41,7 @@ services:
     build:
       context: ./nlp-service
       dockerfile: Dockerfile
-    image: yaimgod/ttleave-nlp:latest
+    image: ghcr.io/yaimgod/ttleave-nlp:latest
     restart: unless-stopped
     networks:
       - supabase_net
@@ -65,7 +65,7 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-    image: yaimgod/ttleave-app:latest
+    image: ghcr.io/yaimgod/ttleave-app:latest
     ports:
       - "3000:3000"
     networks:
