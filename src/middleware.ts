@@ -12,38 +12,34 @@ const PUBLIC_PATHS = [
 
 type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
 
-// The cookie name is derived from the PUBLIC URL (what the browser uses), not the
-// internal Docker URL. @supabase/ssr uses: sb-<hostname>-auth-token
-// Browser sets cookies using NEXT_PUBLIC_SUPABASE_URL → sb-localhost-auth-token
-// We must use the same name here so we can read the browser's session cookies.
-//
-// For the actual HTTP network calls to GoTrue, we use SUPABASE_URL (http://kong:8000)
-// which IS reachable inside the Docker container. localhost:8001 is NOT reachable
-// inside the container — it is only available on the Docker host machine.
-function getCookieName(url: string): string {
-  try {
-    const hostname = new URL(url).hostname;
-    return `sb-${hostname}-auth-token`;
-  } catch {
-    return "sb-localhost-auth-token";
-  }
-}
+// PUBLIC URL — @supabase/ssr derives the cookie name from this, matching the browser.
+const PUBLIC_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+// INTERNAL URL — actual HTTP calls go here (faster, stays inside Docker network).
+const INTERNAL_URL = process.env.SUPABASE_URL ?? PUBLIC_URL;
 
-const COOKIE_NAME = getCookieName(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:8001");
-// Internal URL for server-side HTTP calls (reachable inside Docker container)
-const INTERNAL_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!;
+function internalFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const urlStr = typeof input === "string" ? input : input.toString();
+  const rewritten = urlStr.replace(PUBLIC_URL, INTERNAL_URL);
+  if (rewritten !== urlStr) {
+    console.log(`[middleware] fetch rewrite: ${urlStr} → ${rewritten}`);
+  }
+  const url =
+    typeof input === "string"
+      ? rewritten
+      : input instanceof URL
+        ? new URL(rewritten)
+        : input;
+  return fetch(url, init);
+}
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    INTERNAL_URL,
+    PUBLIC_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookieOptions: {
-        // Force the cookie name to match what the browser set (derived from public URL)
-        name: COOKIE_NAME,
-      },
+      global: { fetch: internalFetch },
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -64,9 +60,17 @@ export async function middleware(request: NextRequest) {
   // Refresh session — do not remove, required for SSR auth to work
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+
+  // Log auth state for the OAuth callback path only (avoid noise on every request)
+  if (pathname.startsWith("/auth/callback")) {
+    console.log(
+      `[middleware] /auth/callback — user: ${user?.email ?? "none"}, error: ${userError?.message ?? "none"}, cookies: [${request.cookies.getAll().map((c) => c.name).join(", ")}]`
+    );
+  }
 
   const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(p + "/")
