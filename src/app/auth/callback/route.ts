@@ -20,11 +20,6 @@ export async function GET(request: Request) {
     console.log("[auth/callback] cookies present:", allCookieNames);
 
     const supabase = await createClient();
-    // Log all cookies so we can verify the PKCE code verifier cookie name
-    const { cookies } = await import("next/headers");
-    const cookieStore = await cookies();
-    const allCookies = cookieStore.getAll().map((c) => c.name);
-    console.log("[auth/callback] cookies present:", allCookies);
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
       return NextResponse.redirect(`${base}${next}`);
