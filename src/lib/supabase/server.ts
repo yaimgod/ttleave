@@ -54,24 +54,18 @@ export async function createClient() {
 }
 
 export async function createServiceClient() {
-  const cookieStore = await cookies();
-
+  // Service role client: never read user cookies — always use service_role JWT.
+  // Using @supabase/ssr with cookies would cause it to fall back to the user's
+  // session token when cookies are present, which defeats the purpose of the
+  // service role (bypassing RLS). Empty cookie store forces service_role key usage.
   return createServerClient<Database>(
     PUBLIC_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
       global: { fetch: internalFetch },
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet: CookieToSet[]) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
+        getAll() { return []; },
+        setAll() {},
       },
     }
   );
