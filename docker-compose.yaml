@@ -38,9 +38,6 @@ services:
   # ── NLP SIDECAR (Python FastAPI + BERT sentiment) ────────────────────────────
   # Model weights baked into the image at build time — no volume needed.
   nlp:
-    build:
-      context: ./nlp-service
-      dockerfile: Dockerfile
     image: ghcr.io/yaimgod/ttleave-nlp:latest
     restart: unless-stopped
     networks:
@@ -58,13 +55,6 @@ services:
 
   # ── NEXT.JS APP ───────────────────────────────────────────────────────────────
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
     image: ghcr.io/yaimgod/ttleave-app:latest
     ports:
       - "3000:3000"
