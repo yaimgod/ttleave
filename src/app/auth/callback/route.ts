@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSafeRedirectPath } from "@/lib/utils/safeRedirect";
@@ -13,6 +14,11 @@ export async function GET(request: Request) {
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || origin;
 
   if (code) {
+    // Log all cookie names so we can verify the PKCE code verifier cookie name
+    const cookieStore = await cookies();
+    const allCookieNames = cookieStore.getAll().map((c) => c.name);
+    console.log("[auth/callback] cookies present:", allCookieNames);
+
     const supabase = await createClient();
     // Log all cookies so we can verify the PKCE code verifier cookie name
     const { cookies } = await import("next/headers");
