@@ -42,8 +42,10 @@ export async function generateMetadata({
 
 export default async function EventDetailPage({
   params,
+  searchParams,
 }: {
   params: { eventId: string };
+  searchParams: { back?: string };
 }) {
   const supabase = await createClient();
   const {
@@ -71,6 +73,11 @@ export default async function EventDetailPage({
     .map((m) => m.groups)
     .filter((g): g is { id: string; name: string } => g !== null);
 
+  const backHref = searchParams.back
+    ? decodeURIComponent(searchParams.back)
+    : "/events";
+  const backLabel = backHref.startsWith("/groups") ? "Group" : "Events";
+
   const isOwner = event.owner_id === user.id;
   const canComment =
     isOwner ||
@@ -84,11 +91,11 @@ export default async function EventDetailPage({
 
       {/* ── Back nav ── */}
       <Link
-        href="/events"
+        href={backHref}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Events
+        {backLabel}
       </Link>
 
       {/* ── Header card ── */}
