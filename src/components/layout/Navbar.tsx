@@ -1,6 +1,6 @@
 "use client";
 
-import { PanelLeft, Plus, LogOut, User } from "lucide-react";
+import { PanelLeft, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -38,13 +38,6 @@ export function Navbar() {
       </Button>
 
       <div className="flex-1" />
-
-      <Button asChild size="sm" className="gap-1.5">
-        <Link href="/events/new">
-          <Plus className="h-4 w-4" />
-          New event
-        </Link>
-      </Button>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
