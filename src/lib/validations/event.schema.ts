@@ -6,7 +6,6 @@ export const createEventSchema = z.object({
   event_type: z.enum(["set_date", "linked", "mutable"]),
   target_date: z.string().datetime({ message: "Select a valid date" }),
   group_id: z.string().uuid().optional().nullable(),
-  is_public: z.boolean().default(false),
   member_permissions: z
     .enum(["view_only", "view_comment", "can_adjust"])
     .default("view_comment"),

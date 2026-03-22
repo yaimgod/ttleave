@@ -61,7 +61,6 @@ export default async function EditEventPage({
           description: event.description ?? "",
           target_date: event.target_date,
           group_id: event.group_id,
-          is_public: event.is_public,
           member_permissions: event.member_permissions,
           color: event.color,
         }}
