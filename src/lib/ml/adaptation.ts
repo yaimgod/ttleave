@@ -1,121 +1,164 @@
 /**
- * Per-user online linear regression for NLP suggestion adaptation.
+ * Per-user online 3-D linear regression for NLP suggestion adaptation.
  *
- * Model:  days = lr_slope × (score − 0.5) + lr_intercept
+ * Model:  days = lr_w_v × V + lr_w_a × A + lr_w_d × D + lr_bias
  *
- * Where `score` is a 0-1 float from the Python NLP sidecar:
- *   0.0 = very positive/happy  →  −slope/2 + intercept  →  negative (push date further — no rush)
- *   0.5 = neutral              →  intercept (~0)         →  no change
- *   1.0 = very negative/mad    →  +slope/2 + intercept  →  positive (bring date closer — need a break)
+ * Where V, A, D are the Valence-Arousal-Dominance centroid returned by the
+ * Python NLP sidecar — a probability-weighted average over 7 emotion classes
+ * (anger, disgust, fear, joy, neutral, sadness, surprise).
  *
- * The input is centred at (score − 0.5) so that:
- *   - slope is always positive (magnitude of response), clamped [1, 28]
- *   - defaultLinearModel() exactly reproduces the (score−0.5)×14 base curve
- *   - no cold-start jump: the model is used from the very first prediction
- *   - L2 regularisation pulls slope back toward 14 (not 1) between overrides
+ *   V: −1 (very unpleasant) → +1 (very pleasant)
+ *   A: −1 (very calm)       → +1 (very aroused / activated)
+ *   D: −1 (very helpless)   → +1 (very dominant / in-control)
  *
- * The model is updated after each user override using stochastic gradient descent
- * with L2 regularisation and gradient clipping to prevent instability.
+ * Default weights give an intuitive ordering that matches the user's intent:
+ *   "hate" text  (anger + disgust mix)  ≈ 6 days   ← most urgent
+ *   pure anger                          ≈ 6 days
+ *   sadness                             ≈ 4 days
+ *   neutral                             ≈ 0 days
+ *   joy                                 ≈ −5 days  ← push leave further
  *
- * Mental model:
- *   stressed / mad  → score near 1  → days > 0 → bring leave closer  (you need a break)
- *   happy / calm    → score near 0  → days < 0 → push leave further   (no urgency)
+ * Default derivation (w_v=−8, w_a=4, w_d=−2, bias=0):
+ *   anger   V=−0.51 A=0.59 D=0.25 → −8×(−0.51)+4×0.59+(−2)×0.25 ≈ +5.9 days
+ *   fear    V=−0.62 A=0.60 D=−0.43 → 4.96+2.40+0.86             ≈ +8.2 → capped +7
+ *   sadness V=−0.63 A=−0.27 D=−0.33 → 5.04−1.08+0.66            ≈ +4.6 days
+ *   joy     V=0.76  A=0.48  D=0.35  → −6.08+1.92−0.70           ≈ −4.9 days
+ *
+ * The model is updated after each user override using stochastic gradient
+ * descent (MSE loss) with L2 regularisation and gradient clipping.
  *
  * Stability guarantees:
- *  - Slope clamped to [1, 28]:    always positive, at most 2× default range
- *  - Intercept clamped to [-7, 7]: symmetric shift only
- *  - L2 regularisation λ=0.01:    pulls toward slope=14, intercept=0
- *  - Gradient clip [-5, 5]:       single extreme override can't destabilise
- *  - LR decay 0.97× per update → floor 0.01: converges after ~75 overrides
+ *   lr_w_v  clamped [−20, 0]:  must stay negative (neg valence → more days)
+ *   lr_w_a  clamped [0, 14]:   must stay non-negative (arousal → urgency)
+ *   lr_w_d  clamped [−8, 0]:   must stay non-positive (dominance ↓ days)
+ *   lr_bias clamped [−7, 7]:   symmetric shift
+ *   Gradient clip ±5:          single extreme override can't destabilise
+ *   L2 λ=0.01:                 anchors weights toward defaults between sessions
+ *   LR decay 0.97× per update, floor 0.01: converges after ~75 overrides
  */
 
-export interface LinearModel {
-  lr_slope: number;          // default 14.0, clamped [1.0, 28.0]
-  lr_intercept: number;      // default 0.0,  clamped [-7.0, 7.0]
-  lr_learning_rate: number;  // starts 0.1, decays 0.97x per update, floor 0.01
+export interface VADFeatures {
+  V: number;  // valence:   −1 (unpleasant) → +1 (pleasant)
+  A: number;  // arousal:   −1 (calm)       → +1 (aroused)
+  D: number;  // dominance: −1 (helpless)   → +1 (dominant)
+}
+
+export interface VADModel {
+  lr_w_v: number;           // weight for valence,   default −8.0
+  lr_w_a: number;           // weight for arousal,   default +4.0
+  lr_w_d: number;           // weight for dominance, default −2.0
+  lr_bias: number;          // bias term,            default 0.0
+  lr_learning_rate: number; // starts 0.1, decays 0.97× per update, floor 0.01
   sample_count: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-// No cold-start threshold — defaultLinearModel() is already the base curve,
-// so the model gives correct predictions from sample 0 and learns from sample 1.
-export const COLD_START_THRESHOLD = 0;
+const DEFAULT_W_V   = -8.0;
+const DEFAULT_W_A   =   4.0;
+const DEFAULT_W_D   =  -2.0;
+const DEFAULT_BIAS  =  0.0;
 
-const HALF_RANGE      =  7;          // predictions span [-7, +7]
-const SLOPE_DEFAULT   = 14.0;        // slope s.t. score 0→+7, 0.5→0, 1→-7
-const SLOPE_MIN       =  1.0;
-const SLOPE_MAX       = 28.0;
-const INTERCEPT_MIN   = -HALF_RANGE;
-const INTERCEPT_MAX   =  HALF_RANGE;
-const LR_FLOOR        =  0.01;
-const LR_DECAY        =  0.97;
-const L2_LAMBDA       =  0.01;  // pulls slope toward SLOPE_DEFAULT, intercept toward 0
-const GRAD_CLIP       =  5.0;
+const W_V_MIN       = -20.0;
+const W_V_MAX       =   0.0;   // must stay ≤ 0 (neg valence → more days)
+const W_A_MIN       =   0.0;   // must stay ≥ 0 (arousal → urgency)
+const W_A_MAX       =  14.0;
+const W_D_MIN       =  -8.0;
+const W_D_MAX       =   0.0;   // must stay ≤ 0 (dominance decreases days)
+const BIAS_MIN      =  -7.0;
+const BIAS_MAX      =   7.0;
+const HALF_RANGE    =   7;     // prediction output clamped to [−7, +7]
+const LR_FLOOR      =   0.01;
+const LR_DECAY      =   0.97;
+const L2_LAMBDA     =   0.01;
+const GRAD_CLIP     =   5.0;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Predict how many days to suggest given a raw 0-1 sentiment score.
+ * Predict how many days to suggest given the VAD features from the NLP sidecar.
  *
- * Formula: days = lr_slope × (score − 0.5) + lr_intercept
- *   score 0.0 (happy)   → −7  (push leave further  — no rush, you're doing well)
- *   score 0.5 (neutral) →  0  (no change)
- *   score 1.0 (mad)     → +7  (bring leave closer   — you need a break)
+ *   days = lr_w_v × V + lr_w_a × A + lr_w_d × D + lr_bias
+ *
+ * Result is rounded and clamped to [−7, +7].
  */
-export function predict(model: LinearModel, score: number): number {
-  const raw = model.lr_slope * (score - 0.5) + model.lr_intercept;
+export function predict(model: VADModel, vad: VADFeatures): number {
+  const raw =
+    model.lr_w_v * vad.V +
+    model.lr_w_a * vad.A +
+    model.lr_w_d * vad.D +
+    model.lr_bias;
   return Math.max(-HALF_RANGE, Math.min(HALF_RANGE, Math.round(raw)));
 }
 
 /**
- * Update the model given a (score, chosenDays) observation.
+ * Update the model given a (vad, chosenDays) observation.
  *
- * Uses online SGD on MSE loss:  L = ½(predicted − chosen)²
- *   ∂L/∂slope     = error × (0.5 − score)  +  λ × (slope − SLOPE_DEFAULT)
- *   ∂L/∂intercept = error                  +  λ × intercept
+ * Online SGD on MSE loss:  L = ½(predicted − chosen)²
+ *   ∂L/∂w_v   = error × V  +  λ × (w_v  − DEFAULT_W_V)
+ *   ∂L/∂w_a   = error × A  +  λ × (w_a  − DEFAULT_W_A)
+ *   ∂L/∂w_d   = error × D  +  λ × (w_d  − DEFAULT_W_D)
+ *   ∂L/∂bias  = error      +  λ × bias
  *
- * L2 regularisation anchors slope toward 14 so the model doesn't drift away
- * from the sensible default between sessions with few overrides.
+ * L2 regularisation anchors each weight toward its default so the model
+ * doesn't drift away from sensible behaviour between sparse feedback sessions.
  *
  * Returns a new model (immutable update).
  */
 export function updateModel(
-  model: LinearModel,
-  score: number,
+  model: VADModel,
+  vad: VADFeatures,
   chosenDays: number
-): LinearModel {
-  const centred   = score - 0.5;                                 // centred input
-  const predicted = model.lr_slope * centred + model.lr_intercept;
-  const error     = predicted - chosenDays;
-  const lr        = model.lr_learning_rate;
+): VADModel {
+  const predicted =
+    model.lr_w_v * vad.V +
+    model.lr_w_a * vad.A +
+    model.lr_w_d * vad.D +
+    model.lr_bias;
 
-  const gradSlope     = error * centred + L2_LAMBDA * (model.lr_slope     - SLOPE_DEFAULT);
-  const gradIntercept = error            + L2_LAMBDA *  model.lr_intercept;
+  const error = predicted - chosenDays;
+  const lr    = model.lr_learning_rate;
 
-  const clip = (g: number): number => Math.max(-GRAD_CLIP, Math.min(GRAD_CLIP, g));
+  const gradWv   = error * vad.V + L2_LAMBDA * (model.lr_w_v  - DEFAULT_W_V);
+  const gradWa   = error * vad.A + L2_LAMBDA * (model.lr_w_a  - DEFAULT_W_A);
+  const gradWd   = error * vad.D + L2_LAMBDA * (model.lr_w_d  - DEFAULT_W_D);
+  const gradBias = error          + L2_LAMBDA *  model.lr_bias;
 
-  const newSlope     = model.lr_slope     - lr * clip(gradSlope);
-  const newIntercept = model.lr_intercept - lr * clip(gradIntercept);
+  const clip = (g: number): number =>
+    Math.max(-GRAD_CLIP, Math.min(GRAD_CLIP, g));
+
+  const newWv   = model.lr_w_v  - lr * clip(gradWv);
+  const newWa   = model.lr_w_a  - lr * clip(gradWa);
+  const newWd   = model.lr_w_d  - lr * clip(gradWd);
+  const newBias = model.lr_bias - lr * clip(gradBias);
 
   return {
-    lr_slope:         Math.max(SLOPE_MIN,     Math.min(SLOPE_MAX,     newSlope)),
-    lr_intercept:     Math.max(INTERCEPT_MIN, Math.min(INTERCEPT_MAX, newIntercept)),
-    lr_learning_rate: Math.max(LR_FLOOR,      lr * LR_DECAY),
-    sample_count:     model.sample_count + 1,
+    lr_w_v:          Math.max(W_V_MIN,  Math.min(W_V_MAX,  newWv)),
+    lr_w_a:          Math.max(W_A_MIN,  Math.min(W_A_MAX,  newWa)),
+    lr_w_d:          Math.max(W_D_MIN,  Math.min(W_D_MAX,  newWd)),
+    lr_bias:         Math.max(BIAS_MIN, Math.min(BIAS_MAX, newBias)),
+    lr_learning_rate: Math.max(LR_FLOOR, lr * LR_DECAY),
+    sample_count:    model.sample_count + 1,
   };
 }
 
 /**
  * Default / initial model for a new (user, event) pair.
- * slope=14 + intercept=0 exactly reproduces (0.5−score)×14:
- *   score 0 → +7, score 0.5 → 0, score 1 → -7
+ *
+ * These weights reproduce the intended ordering on first use:
+ *   hate/anger ≈ 6 days > sadness ≈ 4 days > neutral 0 > joy ≈ −5 days
  */
-export function defaultLinearModel(): LinearModel {
+export function defaultVADModel(): VADModel {
   return {
-    lr_slope:         SLOPE_DEFAULT,  // 14.0
-    lr_intercept:     0.0,
+    lr_w_v:          DEFAULT_W_V,  // −8.0
+    lr_w_a:          DEFAULT_W_A,  // +4.0
+    lr_w_d:          DEFAULT_W_D,  // −2.0
+    lr_bias:         DEFAULT_BIAS, //  0.0
     lr_learning_rate: 0.1,
-    sample_count:     0,
+    sample_count:    0,
   };
 }
+
+// Keep old export name as an alias so any remaining references don't break
+/** @deprecated Use defaultVADModel() */
+export const defaultLinearModel = defaultVADModel;

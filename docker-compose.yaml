@@ -35,11 +35,19 @@ networks:
 
 services:
 
-  # ── NLP SIDECAR (Python FastAPI + BERT sentiment) ────────────────────────────
-  # Model weights baked into the image at build time — no volume needed.
+  # ── NLP SIDECAR (Python FastAPI + emotion VAD model) ─────────────────────────
+  # Built locally from nlp-service/Dockerfile — works on both AMD64 (VPS) and
+  # ARM64 (Apple Silicon); the Dockerfile detects the arch and installs the
+  # correct torch wheel automatically.
+  # Model weights (~630 MB) are baked into the image layer at build time so
+  # container startup is instant.  Run `docker compose build nlp` to rebuild
+  # after changes to nlp-service/.
   nlp:
+    build: ./nlp-service
     image: ghcr.io/yaimgod/ttleave-nlp:latest
     restart: unless-stopped
+    ports:
+      - "8080:8080"   # exposed for local dev (npm run dev → NLP_SERVICE_URL=http://localhost:8080)
     networks:
       - supabase_net
     healthcheck:

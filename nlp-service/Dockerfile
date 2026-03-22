@@ -2,19 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# ── System deps ────────────────────────────────────────────────────────────────
-# build-essential is needed by some torch/tokenizer wheels at compile time.
+# ── System deps ─────────────────────────────────────────────────────────────
+# build-essential needed by some tokenizer wheels at compile time.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Python deps ────────────────────────────────────────────────────────────────
+# ── Python deps ─────────────────────────────────────────────────────────────
 COPY requirements.txt .
 
 # Install torch first with the right variant for the target platform:
-#   linux/amd64  → CPU-only wheel from pytorch.org (~250 MB vs ~800 MB CUDA wheel)
+#   linux/amd64  → CPU-only wheel from pytorch.org (~250 MB vs ~800 MB CUDA)
 #   linux/arm64  → plain torch from PyPI (already CPU-only on ARM)
-# Then install the rest of the requirements normally.
+# Then install the rest (includes sentencepiece for MarianMT tokeniser).
 RUN arch="$(uname -m)" && \
     if [ "$arch" = "x86_64" ]; then \
       pip install --no-cache-dir \
@@ -25,39 +25,56 @@ RUN arch="$(uname -m)" && \
     fi && \
     pip install --no-cache-dir -r requirements.txt
 
-# ── Model cache ────────────────────────────────────────────────────────────────
-# Bake the model weights into this layer so container startup is instant
-# (no network download at runtime).  The named volume in docker-compose mounts
-# over this path and will also be populated on first run, so subsequent
-# image rebuilds that hit the layer cache skip the download entirely.
+# ── Model cache ──────────────────────────────────────────────────────────────
+# Bake both model weights into this image layer so container startup is instant.
+# The named volume in docker-compose mounts over HF_HOME and is also populated
+# on first run, so subsequent image rebuilds that hit the layer cache skip the
+# download entirely.
 #
-# Model: nlptown/bert-base-multilingual-uncased-sentiment
-#   - 5-class star-rating (1-5) trained on multilingual product reviews
-#   - Uses standard BertTokenizerFast — no sentencepiece or protobuf needed
-#   - Works on ARM64 and x86_64 without extra deps
-#   - ~680 MB model file
+# Models baked:
+#   1. j-hartmann/emotion-english-distilroberta-base  (~330 MB)
+#      7-class English emotion classifier (anger/disgust/fear/joy/neutral/sadness/surprise)
+#   2. Helsinki-NLP/opus-mt-tc-big-he-en  (~300 MB)
+#      MarianMT Hebrew→English translator (requires sentencepiece)
+#
 ENV HF_HOME=/app/.cache/huggingface
-# Suppress FutureWarning from transformers calling hf_hub_download(resume_download=True)
-# internally — deprecated in huggingface_hub but not yet fixed in transformers 4.40.x.
 ENV PYTHONWARNINGS="ignore::FutureWarning"
 
 RUN python - <<'PYEOF'
 from transformers import pipeline
-# Trigger full download: model weights + tokenizer vocab
-p = pipeline(
+
+# ── 1. Emotion classifier ──────────────────────────────────────────────────
+print("Downloading emotion classifier…")
+clf = pipeline(
     "text-classification",
-    model="nlptown/bert-base-multilingual-uncased-sentiment",
+    model="j-hartmann/emotion-english-distilroberta-base",
     top_k=None,
     device=-1,
 )
-# Smoke-test: results is [[{label,score},...]] for a single string
-results = p("test")
+results = clf("I am absolutely furious")
 inner = results[0] if isinstance(results[0], list) else results
-assert len(inner) == 5, f"Expected 5 class scores, got {len(inner)}"
-print("Model loaded and smoke-tested OK:", [r["label"] for r in inner])
+assert len(inner) == 7, f"Expected 7 emotion classes, got {len(inner)}"
+labels = sorted(r["label"] for r in inner)
+expected = sorted(["anger","disgust","fear","joy","neutral","sadness","surprise"])
+assert labels == expected, f"Unexpected labels: {labels}"
+print("Emotion classifier OK:", {r["label"]: round(r["score"],3) for r in inner})
+
+# ── 2. Hebrew→English translation model ───────────────────────────────────
+print("Downloading Hebrew→English translation model…")
+translator = pipeline(
+    "translation",
+    model="Helsinki-NLP/opus-mt-tc-big-he-en",
+    device=-1,
+)
+# Smoke-test with a simple Hebrew phrase ("I am angry")
+result = translator("אני כועס", max_length=128)
+inner_t = result[0] if isinstance(result, list) else result
+translation = inner_t.get("translation_text", "") if isinstance(inner_t, dict) else str(inner_t)
+assert translation.strip(), "Translation returned empty string"
+print(f"Translation OK: 'אני כועס' → {translation!r}")
 PYEOF
 
-# ── App ────────────────────────────────────────────────────────────────────────
+# ── App ──────────────────────────────────────────────────────────────────────
 COPY main.py .
 
 EXPOSE 8080

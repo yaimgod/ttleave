@@ -29,9 +29,10 @@ interface MutableEventInputProps {
 }
 
 interface ScorePreview {
-  sentimentScore: number;
-  suggestedDays: number;
-  bucket: string;
+  available: boolean;
+  sentimentScore?: number;
+  suggestedDays?: number;
+  bucket?: string;
 }
 
 const bucketMeta: Record<string, { color: string; label: string }> = {
@@ -60,7 +61,12 @@ function toastLabel(days: number): string {
   return "No change made";
 }
 
-/** Signed display string for a day count. */
+/** Absolute day count for inline labels (direction is given by surrounding text). */
+function absDays(days: number): string {
+  return `${Math.abs(days)}d`;
+}
+
+/** Signed display string — used only for the "use suggested" hint. */
 function signedDays(days: number): string {
   return days > 0 ? `+${days}d` : `${days}d`;
 }
@@ -101,10 +107,10 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
         });
         if (!res.ok) return;
         const data: ScorePreview = await res.json();
-        setPreview(data);
+        setPreview(data); // available:false shows an offline hint; true shows full preview
         // Only update form value if user hasn't manually overridden
         if (manualDays === null) {
-          form.setValue("days_chosen", data.suggestedDays, { shouldValidate: true });
+          form.setValue("days_chosen", data.suggestedDays ?? 0, { shouldValidate: true });
         }
       } catch {
         // network error — silently skip preview
@@ -127,7 +133,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
   const claimSuggested = () => {
     if (!preview) return;
     setManualDays(null);
-    form.setValue("days_chosen", preview.suggestedDays, { shouldValidate: true });
+    form.setValue("days_chosen", preview.suggestedDays ?? 0, { shouldValidate: true });
     setEditingDays(false);
   };
 
@@ -155,8 +161,8 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
     setLoading(false);
   }
 
-  const meta = preview ? (bucketMeta[preview.bucket] ?? bucketMeta.calm) : null;
-  const isOverride = manualDays !== null && preview !== null && manualDays !== preview.suggestedDays;
+  const meta = preview?.bucket ? (bucketMeta[preview.bucket] ?? bucketMeta.calm) : null;
+  const isOverride = manualDays !== null && preview !== null && manualDays !== (preview.suggestedDays ?? 0);
 
   const dayInputEl = (defaultVal: number) => (
     editingDays ? (
@@ -187,7 +193,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
         )}
         title="Click to override"
       >
-        {signedDays(displayDays)}
+        {absDays(displayDays)}
         <Pencil className="h-3 w-3 opacity-60" />
       </button>
     )
@@ -221,9 +227,17 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
 
         {/* Score preview — shown once text is long enough */}
         {preview && reasonText.length >= 5 && (
-          <div className={cn("rounded-lg border p-3 space-y-2", meta?.color)}>
+          <div className={cn("rounded-lg border p-3 space-y-2", meta?.color ?? "bg-muted/40")}>
 
-            {/* Mood level row */}
+            {/* Sidecar offline */}
+            {!preview.available && (
+              <p className="text-xs text-muted-foreground">
+                Mood analysis unavailable — enter days manually below.
+              </p>
+            )}
+
+            {/* Mood level row (only when sidecar is online) */}
+            {preview.available && (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className={cn("text-xs capitalize border", meta?.color)}>
@@ -233,17 +247,18 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
               </div>
               <Progress value={preview.sentimentScore} className="h-1.5 w-24 shrink-0" />
             </div>
+            )}
 
             {/* Days row */}
-            {preview.suggestedDays === 0 ? (
+            {preview.available && (preview.suggestedDays ?? 0) === 0 ? (
               // Neutral — no change suggested, but allow manual override
               <p className="text-xs opacity-75">
                 Feeling neutral — no date change suggested. Override below if you want one.
               </p>
-            ) : (
+            ) : preview.available ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-medium">
-                  {preview.suggestedDays > 0 ? "Bring closer (you need a break 😤):" : "Push further (you're doing well 😊):"}
+                  {(preview.suggestedDays ?? 0) > 0 ? "Bring closer (you need a break 😤):" : "Push further (you're doing well 😊):"}
                 </span>
 
                 {dayInputEl(displayDays)}
@@ -252,7 +267,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
                 {isOverride && (
                   <>
                     <span className="text-[10px] opacity-70">
-                      (suggested {signedDays(preview.suggestedDays)})
+                      (suggested {signedDays(preview.suggestedDays ?? 0)})
                     </span>
                     <Button
                       type="button"
@@ -262,15 +277,15 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
                       onClick={claimSuggested}
                     >
                       <CheckCheck className="h-3 w-3" />
-                      Use {signedDays(preview.suggestedDays)}
+                      Use {signedDays(preview.suggestedDays ?? 0)}
                     </Button>
                   </>
                 )}
               </div>
-            )}
+            ) : null}
 
-            {/* Manual override when suggestion is exactly 0 */}
-            {preview.suggestedDays === 0 && (
+            {/* Manual override when suggestion is exactly 0 or sidecar offline */}
+            {(!preview.available || (preview.suggestedDays ?? 0) === 0) && (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium">Days anyway:</span>
                 {dayInputEl(displayDays)}
@@ -282,7 +297,7 @@ export function MutableEventInput({ eventId, onAdjusted }: MutableEventInputProp
               <Button
                 type="submit"
                 size="sm"
-                disabled={loading || displayDays === 0}
+                disabled={loading || (preview?.available !== false && displayDays === 0)}
                 className="h-7 text-xs"
               >
                 {loading ? "Saving…" : daysLabel(displayDays)}

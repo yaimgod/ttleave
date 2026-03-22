@@ -24,13 +24,21 @@ export function scoreToSuggestedDays(score: number): number {
 
 /**
  * Label a score bucket for display purposes.
+ *
+ * Thresholds are calibrated for the VAD-based composite score, which
+ * naturally clusters lower than the old star-rating score:
+ *   0–9   → calm     (genuinely neutral / positive)
+ *  10–29  → mild
+ *  30–54  → stressed
+ *  55–74  → high
+ *  75–100 → critical
  */
 export function scoreToBucketLabel(
   score: number
 ): "calm" | "mild" | "stressed" | "high" | "critical" {
-  if (score < 20) return "calm";
-  if (score < 40) return "mild";
-  if (score < 60) return "stressed";
-  if (score < 80) return "high";
+  if (score < 10) return "calm";
+  if (score < 30) return "mild";
+  if (score < 55) return "stressed";
+  if (score < 75) return "high";
   return "critical";
 }
