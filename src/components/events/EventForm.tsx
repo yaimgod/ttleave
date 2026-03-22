@@ -28,7 +28,6 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -49,7 +48,6 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
       title: "",
       description: "",
       event_type: "set_date",
-      is_public: false,
       member_permissions: "view_comment",
       color: "#6366f1",
       ...defaultValues,
@@ -185,97 +183,54 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
         </div>
 
         {groups.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="group_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Share with group (optional)</FormLabel>
-                  <Select
-                    onValueChange={(v) => field.onChange(v === "none" ? null : v)}
-                    defaultValue={field.value ?? "none"}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="No group" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="none">No group</SelectItem>
-                      {groups.map((g) => (
-                        <SelectItem key={g.id} value={g.id}>
-                          {g.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="member_permissions"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Member permissions</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="view_only">View only</SelectItem>
-                      <SelectItem value="view_comment">View & comment</SelectItem>
-                      <SelectItem value="can_adjust">Can adjust dates</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
+          <FormField
+            control={form.control}
+            name="group_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Share with group (optional)</FormLabel>
+                <Select
+                  onValueChange={(v) => field.onChange(v === "none" ? null : v)}
+                  defaultValue={field.value ?? "none"}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="No group" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">No group</SelectItem>
+                    {groups.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         )}
 
-        <div className="flex items-center gap-6">
-          <FormField
-            control={form.control}
-            name="is_public"
-            render={({ field }) => (
-              <FormItem className="flex items-center gap-2 space-y-0">
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <FormLabel className="font-normal">Make public</FormLabel>
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="color"
-            render={({ field }) => (
-              <FormItem className="flex items-center gap-2 space-y-0">
-                <FormLabel className="font-normal whitespace-nowrap">
-                  Color
-                </FormLabel>
-                <FormControl>
-                  <input
-                    type="color"
-                    className="h-8 w-10 cursor-pointer rounded border"
-                    {...field}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
-        </div>
+        <FormField
+          control={form.control}
+          name="color"
+          render={({ field }) => (
+            <FormItem className="flex items-center gap-2 space-y-0">
+              <FormLabel className="font-normal whitespace-nowrap">
+                Color
+              </FormLabel>
+              <FormControl>
+                <input
+                  type="color"
+                  className="h-8 w-10 cursor-pointer rounded border"
+                  {...field}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
 
         <Button type="submit" disabled={loading} className="w-full sm:w-auto">
           {loading

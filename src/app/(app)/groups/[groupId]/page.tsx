@@ -167,7 +167,11 @@ export default async function GroupDetailPage({
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {events.map((event) => (
-              <CountdownCard key={event.id} event={{ ...event, group_name: group.name }} />
+              <CountdownCard
+                key={event.id}
+                event={{ ...event, group_name: group.name }}
+                backHref={`/groups/${group.id}`}
+              />
             ))}
           </div>
         )}

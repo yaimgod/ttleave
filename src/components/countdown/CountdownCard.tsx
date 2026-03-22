@@ -14,6 +14,8 @@ type Event = Database["public"]["Tables"]["events"]["Row"] & {
 
 interface CountdownCardProps {
   event: Event;
+  /** If provided, appended as ?back=<backHref> so the detail page knows where to return */
+  backHref?: string;
 }
 
 const typeColors: Record<string, string> = {
@@ -22,9 +24,12 @@ const typeColors: Record<string, string> = {
   mutable: "bg-amber-500/10 text-amber-600 border-amber-200",
 };
 
-export function CountdownCard({ event }: CountdownCardProps) {
+export function CountdownCard({ event, backHref }: CountdownCardProps) {
+  const href = backHref
+    ? `/events/${event.id}?back=${encodeURIComponent(backHref)}`
+    : `/events/${event.id}`;
   return (
-    <Link href={`/events/${event.id}`} className="block">
+    <Link href={href} className="block">
       <Card
         className="transition-shadow hover:shadow-md"
         style={{ borderLeftColor: event.color, borderLeftWidth: 4 }}

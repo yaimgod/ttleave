@@ -2,6 +2,8 @@ fastapi==0.111.0
 uvicorn[standard]==0.29.0
 transformers==4.40.2
 pydantic==2.7.1
+langdetect==1.0.9
+sentencepiece==0.2.0
 # torch is installed separately in the Dockerfile to handle arch differences:
 #   linux/amd64: torch+cpu from pytorch.org (smaller, no CUDA)
 #   linux/arm64 / darwin: plain torch from PyPI (already CPU-only)

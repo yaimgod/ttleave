@@ -4,6 +4,7 @@ import type { Database } from "@/lib/supabase/types";
 import { CountdownTimer } from "@/components/countdown/CountdownTimer";
 import { EventHistory } from "@/components/events/EventHistory";
 import { MutableEventInput } from "@/components/events/MutableEventInput";
+import { ShareToGroupButton } from "@/components/events/ShareToGroupButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,8 +42,10 @@ export async function generateMetadata({
 
 export default async function EventDetailPage({
   params,
+  searchParams,
 }: {
   params: { eventId: string };
+  searchParams: { back?: string };
 }) {
   const supabase = await createClient();
   const {
@@ -61,6 +64,20 @@ export default async function EventDetailPage({
 
   const event = eventData as EventWithGroup;
 
+  type GroupMembership = { groups: { id: string; name: string } | null };
+  const { data: groupsData } = await supabase
+    .from("group_members")
+    .select("groups(id, name)")
+    .eq("user_id", user.id);
+  const userGroups = ((groupsData ?? []) as GroupMembership[])
+    .map((m) => m.groups)
+    .filter((g): g is { id: string; name: string } => g !== null);
+
+  const backHref = searchParams.back
+    ? decodeURIComponent(searchParams.back)
+    : "/events";
+  const backLabel = backHref.startsWith("/groups") ? "Group" : "Events";
+
   const isOwner = event.owner_id === user.id;
   const canComment =
     isOwner ||
@@ -74,11 +91,11 @@ export default async function EventDetailPage({
 
       {/* ── Back nav ── */}
       <Link
-        href="/events"
+        href={backHref}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Events
+        {backLabel}
       </Link>
 
       {/* ── Header card ── */}
@@ -124,6 +141,12 @@ export default async function EventDetailPage({
 
         {isOwner && (
           <div className="flex gap-1 shrink-0">
+            <ShareToGroupButton
+              eventId={event.id}
+              currentGroupId={event.group_id}
+              currentGroupName={event.groups ? (event.groups as { name: string }).name : null}
+              groups={userGroups}
+            />
             {isMutable && (
               <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
                 <Link href={`/events/${event.id}/stats`}>
