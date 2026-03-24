@@ -46,8 +46,6 @@ services:
     build: ./nlp-service
     image: ghcr.io/yaimgod/ttleave-nlp:latest
     restart: unless-stopped
-    ports:
-      - "8080:8080"   # exposed for local dev (npm run dev → NLP_SERVICE_URL=http://localhost:8080)
     networks:
       - supabase_net
     healthcheck:
