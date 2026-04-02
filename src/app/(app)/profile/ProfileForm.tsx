@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Loader2, Upload, BookOpen } from "lucide-react";
+import { Loader2, Upload, BookOpen, Eye, EyeOff } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ interface Props {
     email_notifications: boolean;
   };
   userEmail: string;
+  isOAuthUser: boolean;
 }
 
 const profileSchema = z.object({
@@ -48,11 +49,18 @@ function getInitials(name: string | null, email: string): string {
   return email.slice(0, 2).toUpperCase();
 }
 
-export function ProfileForm({ profile, userEmail }: Props) {
+export function ProfileForm({ profile, userEmail, isOAuthUser }: Props) {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url);
   const [uploading, setUploading] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Change-password state (email users only)
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
 
   const {
     register,
@@ -120,14 +128,27 @@ export function ProfileForm({ profile, userEmail }: Props) {
     toast.success("Profile saved");
   }
 
-  async function handlePasswordReset() {
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    setPasswordLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(userEmail);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success("Check your inbox");
+      toast.success("Password updated");
+      setNewPassword("");
+      setConfirmPassword("");
     }
+    setPasswordLoading(false);
   }
 
   return (
@@ -261,20 +282,83 @@ export function ProfileForm({ profile, userEmail }: Props) {
         </CardContent>
       </Card>
 
-      {/* Change password section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Password</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            We will send a password reset link to your email address.
-          </p>
-          <Button type="button" variant="outline" onClick={handlePasswordReset}>
-            Send password reset email
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Change password section — email users only */}
+      {!isOAuthUser && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Change password</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handlePasswordChange} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="new_password">New password</Label>
+                <div className="relative">
+                  <Input
+                    id="new_password"
+                    type={showNewPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    tabIndex={-1}
+                  >
+                    {showNewPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm_password">Confirm new password</Label>
+                <div className="relative">
+                  <Input
+                    id="confirm_password"
+                    type={showConfirmPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowConfirmPassword((v) => !v)}
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <Button type="submit" variant="outline" disabled={passwordLoading}>
+                {passwordLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  "Update password"
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Help section */}
       <Card>

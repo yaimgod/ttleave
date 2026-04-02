@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const createEventSchema = z.object({
+const baseEventSchema = z.object({
   title: z.string().min(1, "Title is required").max(100),
   description: z.string().max(500).optional(),
   event_type: z.enum(["set_date", "linked", "mutable"]),
@@ -13,9 +13,16 @@ export const createEventSchema = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, "Invalid color")
     .default("#6366f1"),
+  reminder_days: z.array(z.number().int().positive()).default([]),
+  start_date: z.string().datetime().optional().nullable(),
 });
 
-export const updateEventSchema = createEventSchema.partial().omit({
+export const createEventSchema = baseEventSchema.refine(
+  (d) => !d.start_date || new Date(d.start_date) < new Date(d.target_date),
+  { message: "Start date must be before end date", path: ["start_date"] }
+);
+
+export const updateEventSchema = baseEventSchema.partial().omit({
   event_type: true,
 });
 
