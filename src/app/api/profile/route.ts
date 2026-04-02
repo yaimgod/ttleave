@@ -6,6 +6,7 @@ const updateProfileSchema = z.object({
   full_name: z.string().min(1).max(100).optional(),
   nickname: z.string().max(50).optional().nullable(),
   email_notifications: z.boolean().optional(),
+  onboarding_completed: z.boolean().optional(),
 });
 
 export async function PATCH(request: Request) {

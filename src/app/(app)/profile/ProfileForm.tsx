@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, BookOpen } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { createClient } from "@/lib/supabase/client";
+import { OnboardingModal } from "@/components/onboarding/OnboardingModal";
 
 interface Props {
   profile: {
@@ -50,6 +51,7 @@ function getInitials(name: string | null, email: string): string {
 export function ProfileForm({ profile, userEmail }: Props) {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url);
   const [uploading, setUploading] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -273,6 +275,31 @@ export function ProfileForm({ profile, userEmail }: Props) {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Help section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Help</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Revisit the onboarding tutorial to learn about TTLeave features.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowTutorial(true)}
+          >
+            <BookOpen className="mr-2 h-4 w-4" />
+            View tutorial
+          </Button>
+        </CardContent>
+      </Card>
+
+      <OnboardingModal
+        open={showTutorial}
+        onComplete={() => setShowTutorial(false)}
+      />
     </div>
   );
 }
