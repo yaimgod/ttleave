@@ -7,13 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { Settings, Timer, Users } from "lucide-react";
+import { Settings, Share2, Timer, Users } from "lucide-react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { GroupInviteCopy } from "./GroupInviteCopy";
+import { NotificationToggle } from "./NotificationToggle";
 
 type GroupRow = Database["public"]["Tables"]["groups"]["Row"];
 type GroupMemberWithProfile = {
   role: string;
+  notifications_enabled: boolean;
   profiles: { id: string; full_name: string | null; email: string; avatar_url: string | null } | null;
 };
 type GroupWithMembers = GroupRow & { group_members: GroupMemberWithProfile[] };
@@ -49,20 +52,21 @@ export default async function GroupDetailPage({
   const { data: groupData } = await supabase
     .from("groups")
     .select(
-      "*, group_members(role, profiles(id, full_name, email, avatar_url))"
+      "*, group_members(role, notifications_enabled, profiles(id, full_name, email, avatar_url))"
     )
     .eq("id", params.groupId)
     .single();
 
   if (!groupData) notFound();
 
-  const group = groupData as GroupWithMembers;
+  const group = groupData as unknown as GroupWithMembers;
 
   const userMembership = group.group_members.find((m) => m.profiles?.id === user.id);
 
   if (!userMembership) notFound();
 
   const isOwner = userMembership.role === "owner";
+  const userNotificationsEnabled = userMembership.notifications_enabled ?? true;
 
   const { data: eventsData } = await supabase
     .from("events")
@@ -73,15 +77,7 @@ export default async function GroupDetailPage({
 
   const events = (eventsData ?? []) as EventRow[];
 
-  const members = group.group_members as Array<{
-    role: string;
-    profiles: {
-      id: string;
-      full_name: string | null;
-      email: string;
-      avatar_url: string | null;
-    } | null;
-  }>;
+  const members = group.group_members;
 
   return (
     <div className="container max-w-4xl py-6 px-4">
@@ -141,6 +137,11 @@ export default async function GroupDetailPage({
                   <p className="text-sm font-medium leading-none">
                     {m.profiles.full_name ?? m.profiles.email}
                   </p>
+                  {m.profiles.full_name && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {m.profiles.email}
+                    </p>
+                  )}
                   {m.role === "owner" && (
                     <Badge variant="secondary" className="mt-0.5 text-[10px] px-1">
                       Owner
@@ -150,6 +151,21 @@ export default async function GroupDetailPage({
               </div>
             );
           })}
+        </div>
+      </section>
+
+      {/* Invite & share */}
+      <section className="mb-8">
+        <h2 className="mb-3 flex items-center gap-2 font-semibold">
+          <Share2 className="h-4 w-4" />
+          Invite &amp; share
+        </h2>
+        <div className="space-y-4">
+          <GroupInviteCopy groupId={group.id} />
+          <NotificationToggle
+            groupId={group.id}
+            initialEnabled={userNotificationsEnabled}
+          />
         </div>
       </section>
 

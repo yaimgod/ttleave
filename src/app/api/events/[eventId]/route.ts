@@ -3,8 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { updateEventSchema } from "@/lib/validations/event.schema";
 import { isValidUUID } from "@/lib/utils/uuid";
+import { notifyGroupMembers } from "@/lib/notifications";
 
 type EventUpdate = Database["public"]["Tables"]["events"]["Update"];
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
 type Params = { params: { eventId: string } };
 
 export async function GET(_req: Request, { params }: Params) {
@@ -49,7 +51,7 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   const updatePayload: EventUpdate = { ...parsed.data, updated_at: new Date().toISOString() };
-  const { data, error } = await supabase
+  const { data: rawData, error } = await supabase
     .from("events")
     .update(updatePayload as never)
     .eq("id", params.eventId)
@@ -58,6 +60,35 @@ export async function PUT(request: Request, { params }: Params) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const data = rawData as EventRow;
+
+  // Notify group members when target date changes
+  if (parsed.data.target_date && data.group_id) {
+    const { data: groupRaw } = await supabase
+      .from("groups")
+      .select("name")
+      .eq("id", data.group_id)
+      .single();
+    const groupData = groupRaw as { name: string } | null;
+    const { data: actorRaw } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+    const actorProfile = actorRaw as { full_name: string | null; email: string } | null;
+    const actorName = actorProfile?.full_name ?? actorProfile?.email ?? "Someone";
+    const actorEmail = actorProfile?.email ?? "";
+
+    notifyGroupMembers(data.group_id, user.id, {
+      type: "date_change",
+      actor: { name: actorName, email: actorEmail },
+      groupName: groupData?.name ?? "your group",
+      eventTitle: data.title,
+      newDate: data.target_date,
+      eventId: data.id,
+    }).catch(() => {});
+  }
+
   return NextResponse.json(data);
 }
 

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Navbar } from "@/components/layout/Navbar";
 import { MobileNav } from "@/components/layout/MobileNav";
+import { OnboardingWrapper } from "@/components/onboarding/OnboardingWrapper";
 
 export default async function AppLayout({
   children,
@@ -17,6 +18,14 @@ export default async function AppLayout({
   if (!user) {
     redirect("/login");
   }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("onboarding_completed")
+    .eq("id", user.id)
+    .single<{ onboarding_completed: boolean }>();
+
+  const onboardingCompleted = profile?.onboarding_completed ?? false;
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -35,6 +44,9 @@ export default async function AppLayout({
 
       {/* Mobile bottom nav */}
       <MobileNav />
+
+      {/* Onboarding tutorial modal */}
+      <OnboardingWrapper initialCompleted={onboardingCompleted} />
     </div>
   );
 }

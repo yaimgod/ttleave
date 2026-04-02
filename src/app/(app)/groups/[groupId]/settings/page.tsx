@@ -1,20 +1,29 @@
-"use client";
-
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { notFound } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { toast } from "sonner";
-import {
-  Copy,
-  RefreshCw,
-  Trash2,
-  ArrowLeft,
-  Link2,
-} from "lucide-react";
+import { ArrowLeft, ShieldAlert } from "lucide-react";
 import Link from "next/link";
+import type { Database } from "@/lib/supabase/types";
+import { GroupSettingsForm } from "./GroupSettingsForm";
+import { MembersManager } from "./MembersManager";
+import type { MemberItem } from "./MembersManager";
+import { InviteManager } from "./InviteManager";
+import { DeleteGroupButton } from "./DeleteGroupButton";
+
+type GroupRow = Database["public"]["Tables"]["groups"]["Row"];
+
+interface GroupMemberWithProfile {
+  user_id: string;
+  role: "owner" | "member";
+  member_permissions: "view_only" | "view_comment" | "can_adjust";
+  profiles: {
+    id: string;
+    full_name: string | null;
+    email: string;
+    avatar_url: string | null;
+  } | null;
+}
 
 interface InviteData {
   token: string;
@@ -23,124 +32,166 @@ interface InviteData {
   expires_at: string | null;
 }
 
-export default function GroupSettingsPage() {
-  const params = useParams<{ groupId: string }>();
-  const [invite, setInvite] = useState<InviteData | null>(null);
-  const [loading, setLoading] = useState(false);
+export async function generateMetadata({
+  params,
+}: {
+  params: { groupId: string };
+}) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("groups")
+    .select("name")
+    .eq("id", params.groupId)
+    .single();
+  const row = data as { name?: string } | null;
+  return { title: row?.name ? `Settings — ${row.name}` : "Group Settings" };
+}
 
-  useEffect(() => {
-    fetch(`/api/groups/${params.groupId}/invite`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => d && setInvite(d[0] ?? null));
-  }, [params.groupId]);
+export default async function GroupSettingsPage({
+  params,
+}: {
+  params: { groupId: string };
+}) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const generateInvite = async () => {
-    setLoading(true);
-    const res = await fetch(`/api/groups/${params.groupId}/invite`, {
-      method: "POST",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setInvite(data);
-      toast.success("Invite link generated");
-    } else {
-      toast.error("Failed to generate invite");
+  if (!user) notFound();
+
+  // Fetch group with members + profiles
+  const { data: groupData } = await supabase
+    .from("groups")
+    .select(
+      "*, group_members(user_id, role, member_permissions, profiles(id, full_name, email, avatar_url))"
+    )
+    .eq("id", params.groupId)
+    .single();
+
+  if (!groupData) notFound();
+
+  const group = groupData as GroupRow & {
+    group_members: GroupMemberWithProfile[];
+    default_member_permissions: "view_only" | "view_comment" | "can_adjust";
+  };
+
+  // Must be a member
+  const myMembership = group.group_members.find((m) => m.user_id === user.id);
+  if (!myMembership) notFound();
+
+  const isOwner = myMembership.role === "owner";
+
+  // Fetch existing invite (owners only)
+  let initialInvite: InviteData | null = null;
+  if (isOwner) {
+    const { data: inviteRows } = await supabase
+      .from("group_invites")
+      .select("token, use_count, expires_at")
+      .eq("group_id", params.groupId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (inviteRows && inviteRows[0]) {
+      const row = inviteRows[0] as {
+        token: string;
+        use_count: number;
+        expires_at: string | null;
+      };
+      const origin =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        (typeof globalThis !== "undefined" ? "" : "");
+      initialInvite = {
+        token: row.token,
+        invite_url: `${origin}/join/${row.token}`,
+        use_count: row.use_count,
+        expires_at: row.expires_at,
+      };
     }
-    setLoading(false);
-  };
+  }
 
-  const revokeInvite = async () => {
-    await fetch(`/api/groups/${params.groupId}/invite`, { method: "DELETE" });
-    setInvite(null);
-    toast.success("Invite revoked");
-  };
-
-  const copyLink = () => {
-    if (invite) {
-      navigator.clipboard.writeText(invite.invite_url);
-      toast.success("Invite link copied");
-    }
-  };
+  // Shape members for client component
+  const members: MemberItem[] = group.group_members
+    .filter((m) => m.profiles !== null)
+    .map((m) => ({
+      userId: m.user_id,
+      name: m.profiles!.full_name,
+      email: m.profiles!.email,
+      avatarUrl: m.profiles!.avatar_url,
+      role: m.role,
+      memberPermissions: m.member_permissions,
+    }));
 
   return (
-    <div className="container max-w-xl py-6 px-4">
-      <Link
-        href={`/groups/${params.groupId}`}
-        className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to group
-      </Link>
+    <div className="container max-w-xl py-6 px-4 space-y-6">
+      <div>
+        <Link
+          href={`/groups/${params.groupId}`}
+          className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to group
+        </Link>
+        <h1 className="text-2xl font-bold">{group.name}</h1>
+        <p className="text-sm text-muted-foreground">Group settings</p>
+      </div>
 
-      <h1 className="mb-6 text-2xl font-bold">Group Settings</h1>
+      <Separator />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Link2 className="h-4 w-4" />
-            Invite Link
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {invite ? (
-            <>
-              <div className="flex items-center gap-2">
-                <Input
-                  readOnly
-                  value={invite.invite_url}
-                  className="text-xs font-mono"
-                />
-                <Button variant="outline" size="icon" onClick={copyLink}>
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Used {invite.use_count} times</span>
-                {invite.expires_at && (
-                  <span>Expires {new Date(invite.expires_at).toLocaleDateString()}</span>
-                )}
-              </div>
-              <Separator />
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={generateInvite}
-                  disabled={loading}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Regenerate
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={revokeInvite}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Revoke
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div className="space-y-3">
+      {isOwner ? (
+        <>
+          {/* Edit group details + default permissions */}
+          <GroupSettingsForm
+            groupId={params.groupId}
+            initialName={group.name}
+            initialDescription={group.description}
+            initialDefaultPermissions={group.default_member_permissions}
+          />
+
+          {/* Members list */}
+          <MembersManager
+            groupId={params.groupId}
+            members={members}
+            currentUserId={user.id}
+            isOwner={isOwner}
+          />
+
+          {/* Invite link */}
+          <InviteManager
+            groupId={params.groupId}
+            initialInvite={initialInvite}
+          />
+
+          {/* Danger zone */}
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base text-destructive">
+                <ShieldAlert className="h-4 w-4" />
+                Danger zone
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
               <p className="text-sm text-muted-foreground">
-                No active invite link. Generate one to share with others.
+                Deleting this group will permanently remove all members and
+                associated data. This cannot be undone.
               </p>
-              <Button
-                onClick={generateInvite}
-                disabled={loading}
-                size="sm"
-                className="gap-1.5"
-              >
-                <Link2 className="h-4 w-4" />
-                {loading ? "Generating…" : "Generate invite link"}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              <DeleteGroupButton
+                groupId={params.groupId}
+                groupName={group.name}
+              />
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <>
+          {/* Non-owners: read-only member list */}
+          <MembersManager
+            groupId={params.groupId}
+            members={members}
+            currentUserId={user.id}
+            isOwner={false}
+          />
+        </>
+      )}
     </div>
   );
 }

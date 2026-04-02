@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
+import { notifyGroupMembers } from "@/lib/notifications";
 
 type GroupInviteRow = Database["public"]["Tables"]["group_invites"]["Row"];
 type GroupInviteUpdate = Database["public"]["Tables"]["group_invites"]["Update"];
@@ -52,7 +53,7 @@ export async function POST(_req: Request, { params }: Params) {
 
   const { data: inviteData, error } = await serviceSupabase
     .from("group_invites")
-    .select("*")
+    .select("*, groups(default_member_permissions)")
     .eq("token", params.token)
     .single();
 
@@ -60,7 +61,10 @@ export async function POST(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Invite not found" }, { status: 404 });
   }
 
-  const invite = inviteData as GroupInviteRow;
+  type InviteWithGroupPerms = GroupInviteRow & {
+    groups: { default_member_permissions: "view_only" | "view_comment" | "can_adjust" } | null;
+  };
+  const invite = inviteData as InviteWithGroupPerms;
 
   if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
     return NextResponse.json({ error: "This invite has expired" }, { status: 410 });
@@ -85,8 +89,15 @@ export async function POST(_req: Request, { params }: Params) {
     );
   }
 
-  // Add member
-  const memberPayload: GroupMemberInsert = { group_id: invite.group_id, user_id: user.id, role: "member" };
+  // Add member with the group's default permissions
+  const defaultPermissions: "view_only" | "view_comment" | "can_adjust" =
+    invite.groups?.default_member_permissions ?? "view_comment";
+  const memberPayload: GroupMemberInsert = {
+    group_id: invite.group_id,
+    user_id: user.id,
+    role: "member",
+    member_permissions: defaultPermissions,
+  };
   const { error: insertError } = await serviceSupabase
     .from("group_members")
     .insert(memberPayload as never);
@@ -101,6 +112,29 @@ export async function POST(_req: Request, { params }: Params) {
     .from("group_invites")
     .update(updatePayload as never)
     .eq("id", invite.id);
+
+  // Notify existing group members of the new join (fire-and-forget)
+  const { data: groupRaw } = await serviceSupabase
+    .from("groups")
+    .select("name")
+    .eq("id", invite.group_id)
+    .single();
+  const groupData = groupRaw as { name: string } | null;
+  const { data: actorRaw } = await serviceSupabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .single();
+  const actorProfile = actorRaw as { full_name: string | null; email: string } | null;
+  const actorName = actorProfile?.full_name ?? actorProfile?.email ?? "Someone";
+  const actorEmail = actorProfile?.email ?? "";
+  const groupName = groupData?.name ?? "your group";
+
+  notifyGroupMembers(invite.group_id, user.id, {
+    type: "member_join",
+    actor: { name: actorName, email: actorEmail },
+    groupName,
+  }).catch(() => {});
 
   return NextResponse.json({ group_id: invite.group_id }, { status: 201 });
 }
