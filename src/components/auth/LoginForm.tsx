@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -79,7 +80,15 @@ export function LoginForm({ redirectTo = "/dashboard" }: LoginFormProps) {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <div className="flex items-center justify-between">
+                <FormLabel>Password</FormLabel>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-muted-foreground hover:underline underline-offset-4"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <FormControl>
                 <Input type="password" placeholder="••••••••" {...field} />
               </FormControl>
