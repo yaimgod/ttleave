@@ -76,6 +76,19 @@ export default async function GroupDetailPage({
 
   const events = (eventsData ?? []) as EventRow[];
 
+  // Fetch user's favourites for these events
+  const eventIds = events.map((e) => e.id);
+  const { data: favData } = eventIds.length
+    ? await supabase
+        .from("event_favorites")
+        .select("event_id")
+        .eq("user_id", user.id)
+        .in("event_id", eventIds)
+    : { data: [] };
+  const favoritedIds = new Set(
+    (favData ?? []).map((f) => (f as { event_id: string }).event_id)
+  );
+
   const members = group.group_members;
 
   return (
@@ -173,6 +186,7 @@ export default async function GroupDetailPage({
                 key={event.id}
                 event={{ ...event, group_name: group.name }}
                 backHref={`/groups/${group.id}`}
+                isFavorited={favoritedIds.has(event.id)}
               />
             ))}
           </div>
