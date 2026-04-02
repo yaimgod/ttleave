@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
+import { notifyGroupMembers } from "@/lib/notifications";
 
 type GroupInviteRow = Database["public"]["Tables"]["group_invites"]["Row"];
 type GroupInviteUpdate = Database["public"]["Tables"]["group_invites"]["Update"];
@@ -101,6 +102,29 @@ export async function POST(_req: Request, { params }: Params) {
     .from("group_invites")
     .update(updatePayload as never)
     .eq("id", invite.id);
+
+  // Notify existing group members of the new join (fire-and-forget)
+  const { data: groupRaw } = await serviceSupabase
+    .from("groups")
+    .select("name")
+    .eq("id", invite.group_id)
+    .single();
+  const groupData = groupRaw as { name: string } | null;
+  const { data: actorRaw } = await serviceSupabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .single();
+  const actorProfile = actorRaw as { full_name: string | null; email: string } | null;
+  const actorName = actorProfile?.full_name ?? actorProfile?.email ?? "Someone";
+  const actorEmail = actorProfile?.email ?? "";
+  const groupName = groupData?.name ?? "your group";
+
+  notifyGroupMembers(invite.group_id, user.id, {
+    type: "member_join",
+    actor: { name: actorName, email: actorEmail },
+    groupName,
+  }).catch(() => {});
 
   return NextResponse.json({ group_id: invite.group_id }, { status: 201 });
 }

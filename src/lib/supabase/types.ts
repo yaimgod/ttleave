@@ -22,6 +22,7 @@ export type Database = {
           full_name: string | null;
           avatar_url: string | null;
           role: "admin" | "member";
+          email_notifications: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -31,6 +32,7 @@ export type Database = {
           full_name?: string | null;
           avatar_url?: string | null;
           role?: "admin" | "member";
+          email_notifications?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -39,6 +41,7 @@ export type Database = {
           full_name?: string | null;
           avatar_url?: string | null;
           role?: "admin" | "member";
+          email_notifications?: boolean;
           updated_at?: string;
         };
       };
@@ -68,6 +71,7 @@ export type Database = {
           group_id: string;
           user_id: string;
           role: "owner" | "member";
+          notifications_enabled: boolean;
           joined_at: string;
         };
         Insert: {
@@ -75,10 +79,12 @@ export type Database = {
           group_id: string;
           user_id: string;
           role?: "owner" | "member";
+          notifications_enabled?: boolean;
           joined_at?: string;
         };
         Update: {
           role?: "owner" | "member";
+          notifications_enabled?: boolean;
         };
       };
       group_invites: {
