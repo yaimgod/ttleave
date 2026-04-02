@@ -152,7 +152,8 @@ export async function POST(request: Request, { params }: Params) {
     days_chosen,
     date_before: dateBefore.toISOString(),
     date_after: dateAfter.toISOString(),
-  };
+    vad_v: nlp.vad.V,
+  } as DateAdjustmentInsert;
   const { data: adjustment, error: adjError } = await supabase
     .from("date_adjustments")
     .insert(adjPayload as never)

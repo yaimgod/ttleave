@@ -11,6 +11,7 @@ import { Users, Calendar } from "lucide-react";
 
 type Event = Database["public"]["Tables"]["events"]["Row"] & {
   group_name?: string;
+  start_date?: string | null;
 };
 
 interface CountdownCardProps {
@@ -56,7 +57,9 @@ export function CountdownCard({ event, backHref, isFavorited }: CountdownCardPro
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {formatDate(event.target_date)}
+              {event.start_date
+                ? `${formatDate(event.start_date)} – ${formatDate(event.target_date)}`
+                : formatDate(event.target_date)}
             </span>
             {event.group_name && (
               <span className="flex items-center gap-1">
