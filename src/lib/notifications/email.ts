@@ -8,6 +8,8 @@ function buildSubject(payload: NotificationPayload): string {
       return `💬 New comment on ${payload.eventTitle} — ${payload.groupName}`;
     case "member_join":
       return `👋 ${payload.actor.name} joined ${payload.groupName}`;
+    case "new_event":
+      return `📌 New event shared: ${payload.eventTitle} — ${payload.groupName}`;
   }
 }
 
@@ -37,6 +39,12 @@ function buildHtml(payload: NotificationPayload): string {
         <h2>New member in <strong>${payload.groupName}</strong></h2>
         <p><strong>${payload.actor.name}</strong> joined the group.</p>
         <p><a href="${payload.appUrl}/groups">View groups →</a></p>
+      `.trim();
+    case "new_event":
+      return `
+        <h2>New event shared in <strong>${payload.groupName}</strong></h2>
+        <p><strong>${payload.actor.name}</strong> shared a new countdown: <strong>${payload.eventTitle}</strong>.</p>
+        ${eventLink}
       `.trim();
   }
 }

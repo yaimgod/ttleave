@@ -8,7 +8,8 @@ export interface NotificationActor {
 export type NotificationEventType =
   | "date_change"
   | "comment"
-  | "member_join";
+  | "member_join"
+  | "new_event";
 
 export interface NotificationPayload {
   type: NotificationEventType;

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { createEventSchema } from "@/lib/validations/event.schema";
+import { notifyGroupMembers } from "@/lib/notifications";
 
 type EventInsert = Database["public"]["Tables"]["events"]["Insert"];
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -52,12 +54,45 @@ export async function POST(request: Request) {
     owner_id: user.id,
     original_target_date: parsed.data.target_date,
   };
-  const { data, error } = await supabase
+  const { data: rawData, error } = await supabase
     .from("events")
     .insert(insertPayload as never)
     .select()
     .single();
+  const data = rawData as unknown as EventRow;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Notify group members when an event is shared to a group
+  if (data.group_id) {
+    const serviceClient = await createServiceClient();
+    const { data: actorProfileRaw } = await serviceClient
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+    const actorProfile = actorProfileRaw as { full_name: string | null; email: string } | null;
+
+    const { data: groupRaw } = await serviceClient
+      .from("groups")
+      .select("name")
+      .eq("id", data.group_id)
+      .single();
+    const group = groupRaw as { name: string } | null;
+
+    if (actorProfile && group) {
+      notifyGroupMembers(data.group_id, user.id, {
+        type: "new_event",
+        actor: {
+          name: actorProfile.full_name ?? actorProfile.email,
+          email: actorProfile.email,
+        },
+        groupName: group.name,
+        eventTitle: data.title,
+        eventId: data.id,
+      }).catch(console.error);
+    }
+  }
+
   return NextResponse.json(data, { status: 201 });
 }
