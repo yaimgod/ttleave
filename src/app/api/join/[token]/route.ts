@@ -53,7 +53,7 @@ export async function POST(_req: Request, { params }: Params) {
 
   const { data: inviteData, error } = await serviceSupabase
     .from("group_invites")
-    .select("*")
+    .select("*, groups(default_member_permissions)")
     .eq("token", params.token)
     .single();
 
@@ -61,7 +61,10 @@ export async function POST(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Invite not found" }, { status: 404 });
   }
 
-  const invite = inviteData as GroupInviteRow;
+  type InviteWithGroupPerms = GroupInviteRow & {
+    groups: { default_member_permissions: "view_only" | "view_comment" | "can_adjust" } | null;
+  };
+  const invite = inviteData as InviteWithGroupPerms;
 
   if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
     return NextResponse.json({ error: "This invite has expired" }, { status: 410 });
@@ -86,8 +89,15 @@ export async function POST(_req: Request, { params }: Params) {
     );
   }
 
-  // Add member
-  const memberPayload: GroupMemberInsert = { group_id: invite.group_id, user_id: user.id, role: "member" };
+  // Add member with the group's default permissions
+  const defaultPermissions: "view_only" | "view_comment" | "can_adjust" =
+    invite.groups?.default_member_permissions ?? "view_comment";
+  const memberPayload: GroupMemberInsert = {
+    group_id: invite.group_id,
+    user_id: user.id,
+    role: "member",
+    member_permissions: defaultPermissions,
+  };
   const { error: insertError } = await serviceSupabase
     .from("group_members")
     .insert(memberPayload as never);

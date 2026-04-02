@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
-import { createGroupSchema } from "@/lib/validations/group.schema";
+import { updateGroupSchema } from "@/lib/validations/group.schema";
 import { isValidUUID } from "@/lib/utils/uuid";
 
 type GroupUpdate = Database["public"]["Tables"]["groups"]["Update"];
@@ -40,7 +40,7 @@ export async function PUT(request: Request, { params }: Params) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const parsed = createGroupSchema.partial().safeParse(body);
+  const parsed = updateGroupSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.flatten().fieldErrors },

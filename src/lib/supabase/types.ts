@@ -52,6 +52,7 @@ export type Database = {
           description: string | null;
           created_by: string | null;
           created_at: string;
+          default_member_permissions: "view_only" | "view_comment" | "can_adjust";
         };
         Insert: {
           id?: string;
@@ -59,10 +60,12 @@ export type Database = {
           description?: string | null;
           created_by?: string | null;
           created_at?: string;
+          default_member_permissions?: "view_only" | "view_comment" | "can_adjust";
         };
         Update: {
           name?: string;
           description?: string | null;
+          default_member_permissions?: "view_only" | "view_comment" | "can_adjust";
         };
       };
       group_members: {
@@ -71,6 +74,7 @@ export type Database = {
           group_id: string;
           user_id: string;
           role: "owner" | "member";
+          member_permissions: "view_only" | "view_comment" | "can_adjust";
           notifications_enabled: boolean;
           joined_at: string;
         };
@@ -79,11 +83,13 @@ export type Database = {
           group_id: string;
           user_id: string;
           role?: "owner" | "member";
+          member_permissions?: "view_only" | "view_comment" | "can_adjust";
           notifications_enabled?: boolean;
           joined_at?: string;
         };
         Update: {
           role?: "owner" | "member";
+          member_permissions?: "view_only" | "view_comment" | "can_adjust";
           notifications_enabled?: boolean;
         };
       };
