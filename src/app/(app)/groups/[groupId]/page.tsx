@@ -137,11 +137,6 @@ export default async function GroupDetailPage({
                   <p className="text-sm font-medium leading-none">
                     {m.profiles.full_name ?? m.profiles.email}
                   </p>
-                  {m.profiles.full_name && (
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {m.profiles.email}
-                    </p>
-                  )}
                   {m.role === "owner" && (
                     <Badge variant="secondary" className="mt-0.5 text-[10px] px-1">
                       Owner
