@@ -17,10 +17,18 @@ export default async function ProfilePage() {
 
   if (!profile) notFound();
 
+  // Users who signed in via OAuth (Google, etc.) don't have a password
+  const provider = user.app_metadata?.provider as string | undefined;
+  const isOAuthUser = !!provider && provider !== "email";
+
   return (
     <div className="container max-w-2xl py-8 px-4">
       <h1 className="text-2xl font-bold mb-6">Your profile</h1>
-      <ProfileForm profile={profile} userEmail={user.email ?? ""} />
+      <ProfileForm
+        profile={profile}
+        userEmail={user.email ?? ""}
+        isOAuthUser={isOAuthUser}
+      />
     </div>
   );
 }

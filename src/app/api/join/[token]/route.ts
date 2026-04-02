@@ -89,6 +89,14 @@ export async function POST(_req: Request, { params }: Params) {
     );
   }
 
+  // Assign a random calendar color from a palette
+  const MEMBER_COLORS = [
+    "#ef4444", "#f97316", "#eab308", "#22c55e",
+    "#06b6d4", "#6366f1", "#a855f7", "#ec4899",
+    "#14b8a6", "#f43f5e", "#84cc16", "#0ea5e9",
+  ];
+  const randomColor = MEMBER_COLORS[Math.floor(Math.random() * MEMBER_COLORS.length)];
+
   // Add member with the group's default permissions
   const defaultPermissions: "view_only" | "view_comment" | "can_adjust" =
     invite.groups?.default_member_permissions ?? "view_comment";
@@ -97,7 +105,8 @@ export async function POST(_req: Request, { params }: Params) {
     user_id: user.id,
     role: "member",
     member_permissions: defaultPermissions,
-  };
+    member_color: randomColor,
+  } as GroupMemberInsert;
   const { error: insertError } = await serviceSupabase
     .from("group_members")
     .insert(memberPayload as never);

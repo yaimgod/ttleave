@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { createEventSchema, type CreateEventInput } from "@/lib/validations/event.schema";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
@@ -40,6 +41,7 @@ interface EventFormProps {
 export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [isRange, setIsRange] = useState(!!defaultValues?.start_date);
   const isEditing = !!eventId;
 
   const form = useForm<CreateEventInput>({
@@ -50,6 +52,8 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
       event_type: "set_date",
       member_permissions: "view_comment",
       color: "#6366f1",
+      reminder_days: [],
+      start_date: null,
       ...defaultValues,
     },
   });
@@ -114,39 +118,91 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
           )}
         />
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="event_type"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Event type</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="set_date">Fixed Date</SelectItem>
-                    <SelectItem value="mutable">Dynamic (can adjust)</SelectItem>
-                    <SelectItem value="linked">Linked (chain)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription className="text-xs">
-                  Dynamic events can be adjusted by boss events.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        <FormField
+          control={form.control}
+          name="event_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Event type</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="set_date">Fixed Date</SelectItem>
+                  <SelectItem value="mutable">Dynamic (can adjust)</SelectItem>
+                  <SelectItem value="linked">Linked (chain)</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription className="text-xs">
+                Dynamic events can be adjusted by boss events.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Date range toggle */}
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <Checkbox
+              checked={isRange}
+              onCheckedChange={(v) => {
+                setIsRange(!!v);
+                if (!v) form.setValue("start_date", null);
+              }}
+            />
+            Multi-day range (start + end date)
+          </label>
+        </div>
+
+        <div className={cn("grid gap-4", isRange ? "sm:grid-cols-2" : "sm:grid-cols-1 max-w-xs")}>
+          {isRange && (
+            <FormField
+              control={form.control}
+              name="start_date"
+              render={({ field }) => (
+                <FormItem className="flex flex-col">
+                  <FormLabel>Start date</FormLabel>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "justify-start text-left font-normal",
+                            !field.value && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {field.value ? format(new Date(field.value), "PPP") : "Pick start date"}
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={field.value ? new Date(field.value) : undefined}
+                        onSelect={(date) => field.onChange(date?.toISOString() ?? "")}
+                        disabled={(date) => date < new Date()}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
 
           <FormField
             control={form.control}
             name="target_date"
             render={({ field }) => (
               <FormItem className="flex flex-col">
-                <FormLabel>Target date</FormLabel>
+                <FormLabel>{isRange ? "End date" : "Target date"}</FormLabel>
                 <Popover>
                   <PopoverTrigger asChild>
                     <FormControl>
@@ -158,9 +214,7 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
                         )}
                       >
                         <CalendarIcon className="mr-2 h-4 w-4" />
-                        {field.value
-                          ? format(new Date(field.value), "PPP")
-                          : "Pick a date"}
+                        {field.value ? format(new Date(field.value), "PPP") : "Pick a date"}
                       </Button>
                     </FormControl>
                   </PopoverTrigger>
@@ -168,9 +222,7 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
                     <Calendar
                       mode="single"
                       selected={field.value ? new Date(field.value) : undefined}
-                      onSelect={(date) =>
-                        field.onChange(date?.toISOString() ?? "")
-                      }
+                      onSelect={(date) => field.onChange(date?.toISOString() ?? "")}
                       disabled={(date) => date < new Date()}
                       initialFocus
                     />
@@ -230,6 +282,50 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
               </FormControl>
             </FormItem>
           )}
+        />
+
+        {/* Reminder notifications */}
+        <FormField
+          control={form.control}
+          name="reminder_days"
+          render={({ field }) => {
+            const REMINDERS = [
+              { value: 1,  label: "1 day before" },
+              { value: 7,  label: "1 week before" },
+              { value: 30, label: "1 month before" },
+            ];
+            const toggle = (days: number) => {
+              const current = field.value ?? [];
+              field.onChange(
+                current.includes(days)
+                  ? current.filter((d) => d !== days)
+                  : [...current, days]
+              );
+            };
+            return (
+              <FormItem>
+                <FormLabel>Reminders</FormLabel>
+                <FormDescription className="text-xs">
+                  Get an email reminder before the date arrives.
+                </FormDescription>
+                <div className="flex flex-wrap gap-4 pt-1">
+                  {REMINDERS.map(({ value, label }) => (
+                    <label
+                      key={value}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={(field.value ?? []).includes(value)}
+                        onCheckedChange={() => toggle(value)}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
         />
 
         <Button type="submit" disabled={loading} className="w-full sm:w-auto">
