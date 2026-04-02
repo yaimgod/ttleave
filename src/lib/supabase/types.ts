@@ -20,9 +20,11 @@ export type Database = {
           id: string;
           email: string;
           full_name: string | null;
+          nickname: string | null;
           avatar_url: string | null;
           role: "admin" | "member";
           email_notifications: boolean;
+          onboarding_completed: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -30,18 +32,22 @@ export type Database = {
           id: string;
           email: string;
           full_name?: string | null;
+          nickname?: string | null;
           avatar_url?: string | null;
           role?: "admin" | "member";
           email_notifications?: boolean;
+          onboarding_completed?: boolean;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           email?: string;
           full_name?: string | null;
+          nickname?: string | null;
           avatar_url?: string | null;
           role?: "admin" | "member";
           email_notifications?: boolean;
+          onboarding_completed?: boolean;
           updated_at?: string;
         };
       };
