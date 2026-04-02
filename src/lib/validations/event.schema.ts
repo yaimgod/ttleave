@@ -13,6 +13,7 @@ export const createEventSchema = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, "Invalid color")
     .default("#6366f1"),
+  reminder_days: z.array(z.number().int().positive()).default([]),
 });
 
 export const updateEventSchema = createEventSchema.partial().omit({

@@ -9,7 +9,8 @@ export type NotificationEventType =
   | "date_change"
   | "comment"
   | "member_join"
-  | "new_event";
+  | "new_event"
+  | "reminder";
 
 export interface NotificationPayload {
   type: NotificationEventType;
@@ -19,6 +20,8 @@ export interface NotificationPayload {
   oldDate?: string;
   newDate?: string;
   commentText?: string;
+  targetDate?: string;
+  daysBefore?: number;
   appUrl: string;
   eventId?: string;
 }

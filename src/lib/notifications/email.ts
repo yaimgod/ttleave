@@ -10,6 +10,11 @@ function buildSubject(payload: NotificationPayload): string {
       return `👋 ${payload.actor.name} joined ${payload.groupName}`;
     case "new_event":
       return `📌 New event shared: ${payload.eventTitle} — ${payload.groupName}`;
+    case "reminder": {
+      const d = payload.daysBefore;
+      const when = d === 1 ? "tomorrow" : d === 7 ? "in 1 week" : `in ${d} days`;
+      return `⏰ Reminder: ${payload.eventTitle} is ${when}`;
+    }
   }
 }
 
@@ -46,6 +51,15 @@ function buildHtml(payload: NotificationPayload): string {
         <p><strong>${payload.actor.name}</strong> shared a new countdown: <strong>${payload.eventTitle}</strong>.</p>
         ${eventLink}
       `.trim();
+    case "reminder": {
+      const d = payload.daysBefore;
+      const when = d === 1 ? "tomorrow" : d === 7 ? "in 1 week" : `in ${d} days`;
+      return `
+        <h2>⏰ Reminder: <strong>${payload.eventTitle}</strong> is ${when}</h2>
+        ${payload.targetDate ? `<p>Date: ${payload.targetDate}</p>` : ""}
+        ${eventLink}
+      `.trim();
+    }
   }
 }
 

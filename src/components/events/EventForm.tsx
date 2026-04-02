@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { createEventSchema, type CreateEventInput } from "@/lib/validations/event.schema";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
@@ -50,6 +51,7 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
       event_type: "set_date",
       member_permissions: "view_comment",
       color: "#6366f1",
+      reminder_days: [],
       ...defaultValues,
     },
   });
@@ -230,6 +232,50 @@ export function EventForm({ defaultValues, eventId, groups = [] }: EventFormProp
               </FormControl>
             </FormItem>
           )}
+        />
+
+        {/* Reminder notifications */}
+        <FormField
+          control={form.control}
+          name="reminder_days"
+          render={({ field }) => {
+            const REMINDERS = [
+              { value: 1,  label: "1 day before" },
+              { value: 7,  label: "1 week before" },
+              { value: 30, label: "1 month before" },
+            ];
+            const toggle = (days: number) => {
+              const current = field.value ?? [];
+              field.onChange(
+                current.includes(days)
+                  ? current.filter((d) => d !== days)
+                  : [...current, days]
+              );
+            };
+            return (
+              <FormItem>
+                <FormLabel>Reminders</FormLabel>
+                <FormDescription className="text-xs">
+                  Get an email reminder before the date arrives.
+                </FormDescription>
+                <div className="flex flex-wrap gap-4 pt-1">
+                  {REMINDERS.map(({ value, label }) => (
+                    <label
+                      key={value}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={(field.value ?? []).includes(value)}
+                        onCheckedChange={() => toggle(value)}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
         />
 
         <Button type="submit" disabled={loading} className="w-full sm:w-auto">
