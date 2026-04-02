@@ -10,6 +10,7 @@ import { MembersManager } from "./MembersManager";
 import type { MemberItem } from "./MembersManager";
 import { InviteManager } from "./InviteManager";
 import { DeleteGroupButton } from "./DeleteGroupButton";
+import { NotificationToggle } from "../NotificationToggle";
 
 type GroupRow = Database["public"]["Tables"]["groups"]["Row"];
 
@@ -17,6 +18,7 @@ interface GroupMemberWithProfile {
   user_id: string;
   role: "owner" | "member";
   member_permissions: "view_only" | "view_comment" | "can_adjust";
+  notifications_enabled: boolean;
   profiles: {
     id: string;
     full_name: string | null;
@@ -63,7 +65,7 @@ export default async function GroupSettingsPage({
   const { data: groupData } = await supabase
     .from("groups")
     .select(
-      "*, group_members(user_id, role, member_permissions, profiles(id, full_name, email, avatar_url))"
+      "*, group_members(user_id, role, member_permissions, notifications_enabled, profiles(id, full_name, email, avatar_url))"
     )
     .eq("id", params.groupId)
     .single();
@@ -136,6 +138,19 @@ export default async function GroupSettingsPage({
       </div>
 
       <Separator />
+
+      {/* Notification preference — available to all members */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Notifications</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <NotificationToggle
+            groupId={params.groupId}
+            initialEnabled={myMembership.notifications_enabled ?? true}
+          />
+        </CardContent>
+      </Card>
 
       {isOwner ? (
         <>

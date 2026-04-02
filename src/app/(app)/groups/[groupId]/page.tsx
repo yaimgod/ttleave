@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Settings, Share2, Timer, Users } from "lucide-react";
+
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { GroupInviteCopy } from "./GroupInviteCopy";
-import { NotificationToggle } from "./NotificationToggle";
 
 type GroupRow = Database["public"]["Tables"]["groups"]["Row"];
 type GroupMemberWithProfile = {
@@ -66,7 +66,6 @@ export default async function GroupDetailPage({
   if (!userMembership) notFound();
 
   const isOwner = userMembership.role === "owner";
-  const userNotificationsEnabled = userMembership.notifications_enabled ?? true;
 
   const { data: eventsData } = await supabase
     .from("events")
@@ -98,14 +97,12 @@ export default async function GroupDetailPage({
             </p>
           )}
         </div>
-        {isOwner && (
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/groups/${group.id}/settings`} className="gap-1.5">
-              <Settings className="h-4 w-4" />
-              Settings
-            </Link>
-          </Button>
-        )}
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/groups/${group.id}/settings`} className="gap-1.5">
+            <Settings className="h-4 w-4" />
+            Settings
+          </Link>
+        </Button>
       </div>
 
       <Separator className="mb-6" />
@@ -155,13 +152,7 @@ export default async function GroupDetailPage({
           <Share2 className="h-4 w-4" />
           Invite &amp; share
         </h2>
-        <div className="space-y-4">
-          <GroupInviteCopy groupId={group.id} />
-          <NotificationToggle
-            groupId={group.id}
-            initialEnabled={userNotificationsEnabled}
-          />
-        </div>
+        <GroupInviteCopy groupId={group.id} />
       </section>
 
       {/* Shared events */}
