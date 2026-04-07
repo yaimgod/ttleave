@@ -32,11 +32,13 @@ export async function GET(_req: Request, { params }: Params) {
 }
 
 export async function POST(request: Request, { params }: Params) {
+  console.log("[comments POST] hit for event", params.eventId);
   if (!isValidUUID(params.eventId)) {
     return NextResponse.json({ error: "Invalid event id" }, { status: 400 });
   }
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  console.log("[comments POST] user", user?.id ?? "none");
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
