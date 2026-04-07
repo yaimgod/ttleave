@@ -13,7 +13,10 @@ export async function notifyGroupMembers(
   actorId: string,
   payload: Omit<NotificationPayload, "appUrl">
 ): Promise<void> {
-  if (!emailProvider.isConfigured()) return;
+  if (!emailProvider.isConfigured()) {
+    console.log("[notify] email not configured — skipping");
+    return;
+  }
 
   const supabase = await createServiceClient();
 
@@ -32,6 +35,7 @@ export async function notifyGroupMembers(
     .neq("user_id", actorId);
 
   const members = membersRaw as MemberWithProfile[] | null;
+  console.log("[notify] members found:", members?.length ?? 0, "for group", groupId);
 
   if (!members?.length) return;
 
