@@ -76,7 +76,7 @@ export async function POST(request: Request, { params }: Params) {
       eventTitle: event.title,
       commentText: parsed.data.content.slice(0, 200),
       eventId: params.eventId,
-    }).catch(() => {});
+    }).catch(console.error);
   }
 
   return NextResponse.json(comment, { status: 201 });
