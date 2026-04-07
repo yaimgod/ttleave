@@ -4,10 +4,8 @@ import { useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/lib/supabase/types";
 import { queryKeys } from "@/lib/query/keys";
 
-type EventCommentInsert = Database["public"]["Tables"]["event_comments"]["Insert"];
 type CommentWithProfile = {
   id: string;
   event_id: string;
@@ -78,12 +76,12 @@ export function CommentFeed({ eventId, canComment }: CommentFeedProps) {
 
   const mutation = useMutation({
     mutationFn: async ({ content }: { content: string }) => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Unauthorized");
-      const payload: EventCommentInsert = { event_id: eventId, author_id: user.id, content };
-      const { error } = await supabase.from("event_comments").insert(payload as never);
-      if (error) throw error;
+      const res = await fetch(`/api/events/${eventId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) throw new Error("Failed to post comment");
     },
     onSuccess: () => {
       reset();
