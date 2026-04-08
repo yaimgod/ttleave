@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 import { isValidUUID } from "@/lib/utils/uuid";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 type MembershipRow = { role: "owner" | "member" };
 
@@ -47,8 +48,9 @@ export async function PATCH(request: Request, { params }: Params) {
     );
   }
 
-  const body = await request.json();
-  const parsed = patchSchema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = patchSchema.safeParse(jsonResult.data);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.flatten().fieldErrors },
@@ -64,7 +66,7 @@ export async function PATCH(request: Request, { params }: Params) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data);
 }
 
@@ -118,6 +120,6 @@ export async function DELETE(_req: Request, { params }: Params) {
     .eq("group_id", params.groupId)
     .eq("user_id", params.userId);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return new NextResponse(null, { status: 204 });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { EmailProvider } from "@/lib/notifications/email";
 import type { NotificationPayload } from "@/lib/notifications/types";
+import { serverError } from "@/lib/utils/api-error";
 
 const emailProvider = new EmailProvider();
 
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     .gt("target_date", today.toISOString());
 
   if (eventsError) {
-    return NextResponse.json({ error: eventsError.message }, { status: 500 });
+    return serverError(eventsError);
   }
 
   const events = (eventsRaw ?? []) as EventRow[];

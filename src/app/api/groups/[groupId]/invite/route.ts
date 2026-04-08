@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { isValidUUID } from "@/lib/utils/uuid";
+import { serverError } from "@/lib/utils/api-error";
 
 type GroupInviteInsert = Database["public"]["Tables"]["group_invites"]["Insert"];
 type Params = { params: { groupId: string } };
@@ -51,16 +52,13 @@ export async function POST(_req: Request, { params }: Params) {
     .eq("user_id", user.id)
     .single();
 
-  console.log(`[invite POST] user=${user.id} group=${params.groupId} membership=${JSON.stringify(membershipData)} err=${membershipError?.message}`);
-
   const membership = membershipData as { role: string } | null;
   if (membership?.role !== "owner") {
     return NextResponse.json({ error: "Only group owners can manage invites" }, { status: 403 });
   }
 
   // Delete existing invite for this group (one active invite at a time)
-  const { error: deleteError } = await supabase.from("group_invites").delete().eq("group_id", params.groupId);
-  console.log(`[invite POST] delete err=${deleteError?.message ?? "none"}`);
+  await supabase.from("group_invites").delete().eq("group_id", params.groupId);
 
   // Create new invite
   const invitePayload: GroupInviteInsert = { group_id: params.groupId, created_by: user.id };
@@ -70,8 +68,7 @@ export async function POST(_req: Request, { params }: Params) {
     .select()
     .single();
 
-  console.log(`[invite POST] insert data=${JSON.stringify(data)} err=${error?.message}`);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   const row = data as { token: string; [k: string]: unknown } | null;
   const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/join/${row?.token ?? ""}`;

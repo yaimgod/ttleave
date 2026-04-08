@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { createEventSchema } from "@/lib/validations/event.schema";
 import { notifyGroupMembers } from "@/lib/notifications";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 type EventInsert = Database["public"]["Tables"]["events"]["Insert"];
 type EventRow = Database["public"]["Tables"]["events"]["Row"];
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
   if (completed !== null) query = query.eq("is_completed", completed === "true");
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data);
 }
 
@@ -40,8 +41,9 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
-  const parsed = createEventSchema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = createEventSchema.safeParse(jsonResult.data);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.flatten().fieldErrors },
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
     .single();
   const data = rawData as unknown as EventRow;
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   // Notify group members when an event is shared to a group
   if (data.group_id) {

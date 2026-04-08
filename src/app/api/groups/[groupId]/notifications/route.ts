@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 import { isValidUUID } from "@/lib/utils/uuid";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 const schema = z.object({ enabled: z.boolean() });
 type Params = { params: { groupId: string } };
@@ -14,8 +15,9 @@ export async function PATCH(request: Request, { params }: Params) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
-  const parsed = schema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = schema.safeParse(jsonResult.data);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 422 });
   }
@@ -28,6 +30,6 @@ export async function PATCH(request: Request, { params }: Params) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data);
 }

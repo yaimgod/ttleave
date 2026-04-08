@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
-import { z } from "zod";
 import { isValidUUID } from "@/lib/utils/uuid";
 import { notifyGroupMembers } from "@/lib/notifications";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
+import { createCommentSchema } from "@/lib/validations/comment.schema";
 
 type CommentInsert = Database["public"]["Tables"]["event_comments"]["Insert"];
 
-const commentSchema = z.object({
-  content: z.string().min(1).max(2000),
-});
+const commentSchema = createCommentSchema.pick({ content: true });
 
 type Params = { params: { eventId: string } };
 
@@ -27,22 +26,21 @@ export async function GET(_req: Request, { params }: Params) {
     .eq("event_id", params.eventId)
     .order("created_at", { ascending: true });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data ?? []);
 }
 
 export async function POST(request: Request, { params }: Params) {
-  console.log("[comments POST] hit for event", params.eventId);
   if (!isValidUUID(params.eventId)) {
     return NextResponse.json({ error: "Invalid event id" }, { status: 400 });
   }
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  console.log("[comments POST] user", user?.id ?? "none");
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
-  const parsed = commentSchema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = commentSchema.safeParse(jsonResult.data);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 422 });
   }
@@ -54,16 +52,15 @@ export async function POST(request: Request, { params }: Params) {
     .select("*, profiles(id, full_name, avatar_url)")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   // Notify group members (fire-and-forget — don't block the response)
-  const { data: eventRaw, error: eventFetchErr } = await supabase
+  const { data: eventRaw } = await supabase
     .from("events")
     .select("title, group_id, groups(name)")
     .eq("id", params.eventId)
     .single();
   const event = eventRaw as { title: string; group_id: string | null; groups: { name: string } | null } | null;
-  console.log("[comment notify] event fetch:", { event, eventFetchErr });
 
   if (event?.group_id) {
     const actorProfileRes = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single();
@@ -71,7 +68,6 @@ export async function POST(request: Request, { params }: Params) {
     const actorName = actorProfile?.full_name ?? actorProfile?.email ?? "Someone";
     const actorEmail = actorProfile?.email ?? "";
     const groupName = event.groups?.name ?? "your group";
-    console.log("[comment notify] firing for group", event.group_id, "actor", actorName);
 
     notifyGroupMembers(event.group_id, user.id, {
       type: "comment",
@@ -81,8 +77,6 @@ export async function POST(request: Request, { params }: Params) {
       commentText: parsed.data.content.slice(0, 200),
       eventId: params.eventId,
     }).catch(console.error);
-  } else {
-    console.log("[comment notify] skipped — no group_id on event");
   }
 
   return NextResponse.json(comment, { status: 201 });

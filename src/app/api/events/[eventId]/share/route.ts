@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isValidUUID } from "@/lib/utils/uuid";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 type Params = { params: { eventId: string } };
 
@@ -15,8 +16,9 @@ export async function POST(request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
-  const { group_id } = body as { group_id: string };
+  const jsonResult = await parseJsonBody<{ group_id?: string }>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const { group_id } = jsonResult.data;
   if (!group_id || !isValidUUID(group_id)) {
     return NextResponse.json({ error: "Invalid group id" }, { status: 400 });
   }
@@ -40,7 +42,7 @@ export async function POST(request: Request, { params }: Params) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data);
 }
 
@@ -63,6 +65,6 @@ export async function DELETE(_req: Request, { params }: Params) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data);
 }

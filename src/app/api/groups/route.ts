@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { createGroupSchema } from "@/lib/validations/group.schema";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 type GroupInsert = Database["public"]["Tables"]["groups"]["Insert"];
 
@@ -18,7 +19,7 @@ export async function GET() {
     .eq("group_members.user_id", user.id)
     .order("created_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json(data);
 }
 
@@ -29,8 +30,9 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
-  const parsed = createGroupSchema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = createGroupSchema.safeParse(jsonResult.data);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.flatten().fieldErrors },
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   // Trigger on_group_created adds user as owner automatically
   return NextResponse.json(data, { status: 201 });

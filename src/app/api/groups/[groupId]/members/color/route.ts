@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 import { isValidUUID } from "@/lib/utils/uuid";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 const schema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Invalid hex color"),
@@ -17,8 +18,9 @@ export async function PATCH(req: Request, { params }: Params) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json();
-  const parsed = schema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(req);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = schema.safeParse(jsonResult.data);
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten().fieldErrors }, { status: 422 });
 
@@ -28,6 +30,6 @@ export async function PATCH(req: Request, { params }: Params) {
     .eq("group_id", params.groupId)
     .eq("user_id", user.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json({ color: parsed.data.color });
 }

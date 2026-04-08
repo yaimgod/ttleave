@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { serverError } from "@/lib/utils/api-error";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -18,7 +19,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "File must be under 2 MB" }, { status: 400 });
   }
 
-  const ext = file.name.split(".").pop() ?? "jpg";
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif"];
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
+  }
   const path = `${user.id}/avatar.${ext}`;
   const bytes = await file.arrayBuffer();
 
@@ -26,7 +31,7 @@ export async function POST(request: Request) {
     .from("avatars")
     .upload(path, bytes, { contentType: file.type, upsert: true });
 
-  if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 });
+  if (uploadError) return serverError(uploadError);
 
   const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
 

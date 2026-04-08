@@ -4,6 +4,7 @@ import type { Database } from "@/lib/supabase/types";
 import { updateEventSchema } from "@/lib/validations/event.schema";
 import { isValidUUID } from "@/lib/utils/uuid";
 import { notifyGroupMembers } from "@/lib/notifications";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 type EventUpdate = Database["public"]["Tables"]["events"]["Update"];
 type EventRow = Database["public"]["Tables"]["events"]["Row"];
@@ -27,7 +28,7 @@ export async function GET(_req: Request, { params }: Params) {
     .eq("id", params.eventId)
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 404 });
+  if (error) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(data);
 }
 
@@ -41,8 +42,9 @@ export async function PUT(request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
-  const parsed = updateEventSchema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = updateEventSchema.safeParse(jsonResult.data);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.flatten().fieldErrors },
@@ -59,7 +61,7 @@ export async function PUT(request: Request, { params }: Params) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   const data = rawData as EventRow;
 
   // Notify group members when target date changes
@@ -86,7 +88,7 @@ export async function PUT(request: Request, { params }: Params) {
       eventTitle: data.title,
       newDate: data.target_date,
       eventId: data.id,
-    }).catch(() => {});
+    }).catch(console.error);
   }
 
   return NextResponse.json(data);
@@ -108,7 +110,7 @@ export async function DELETE(_req: Request, { params }: Params) {
     .eq("id", params.eventId)
     .eq("owner_id", user.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   // Trigger chain activation if the event was completed before deletion — no-op here
   return new NextResponse(null, { status: 204 });
@@ -133,10 +135,9 @@ export async function PATCH(request: Request, { params }: Params) {
     .select()
     .single();
 
-  if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 });
+  if (fetchError) return serverError(fetchError);
 
-  // Activate linked successors via DB function (RPC not in generated types)
-  // @ts-expect-error — activate_chain_successors RPC exists in DB but not in generated Database type
+  // Activate linked successors via DB function
   await supabase.rpc("activate_chain_successors", { p_event_id: params.eventId });
 
   return NextResponse.json(event);

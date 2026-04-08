@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { notifyGroupMembers } from "@/lib/notifications";
+import { serverError } from "@/lib/utils/api-error";
 
 type GroupInviteRow = Database["public"]["Tables"]["group_invites"]["Row"];
 type GroupInviteUpdate = Database["public"]["Tables"]["group_invites"]["Update"];
@@ -112,7 +113,7 @@ export async function POST(_req: Request, { params }: Params) {
     .insert(memberPayload as never);
 
   if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+    return serverError(insertError);
   }
 
   // Increment use_count
@@ -143,7 +144,7 @@ export async function POST(_req: Request, { params }: Params) {
     type: "member_join",
     actor: { name: actorName, email: actorEmail },
     groupName,
-  }).catch(() => {});
+  }).catch(console.error);
 
   return NextResponse.json({ group_id: invite.group_id }, { status: 201 });
 }

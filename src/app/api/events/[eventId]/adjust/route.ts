@@ -7,6 +7,7 @@ import { predict, updateModel, defaultVADModel } from "@/lib/ml/adaptation";
 import type { VADModel, VADFeatures } from "@/lib/ml/adaptation";
 import { addDays } from "date-fns";
 import { isValidUUID } from "@/lib/utils/uuid";
+import { serverError, parseJsonBody } from "@/lib/utils/api-error";
 
 type DateAdjustmentInsert = Database["public"]["Tables"]["date_adjustments"]["Insert"];
 type EventRow = Database["public"]["Tables"]["events"]["Row"];
@@ -72,8 +73,9 @@ export async function POST(request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json();
-  const parsed = submitAdjustmentSchema.safeParse(body);
+  const jsonResult = await parseJsonBody<unknown>(request);
+  if (!jsonResult.ok) return jsonResult.response;
+  const parsed = submitAdjustmentSchema.safeParse(jsonResult.data);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.flatten().fieldErrors },
@@ -139,7 +141,7 @@ export async function POST(request: Request, { params }: Params) {
     .eq("id", params.eventId);
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return serverError(updateError);
   }
 
   // 6. Log the adjustment (sentiment_score stored as 0-100 integer per schema)
@@ -161,7 +163,7 @@ export async function POST(request: Request, { params }: Params) {
     .single();
 
   if (adjError) {
-    return NextResponse.json({ error: adjError.message }, { status: 500 });
+    return serverError(adjError);
   }
 
   // 7. Online gradient descent update — learn from user's override
@@ -181,8 +183,7 @@ export async function POST(request: Request, { params }: Params) {
 
   await supabase
     .from("nlp_feedback")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase infers 'never' for upsert payload
-    // onConflict targets the UNIQUE(user_id, event_id) constraint
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase SDK upsert overload infers the row type as 'never'; onConflict targets UNIQUE(user_id, event_id)
     .upsert(nlpPayload as any, { onConflict: "user_id,event_id" });
 
   return NextResponse.json({
