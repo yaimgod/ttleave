@@ -89,13 +89,43 @@ export async function POST(_req: Request, { params }: Params) {
     );
   }
 
-  // Assign a random calendar color from a palette
+  // Assign a calendar color that is visually distinct from existing members' colors
   const MEMBER_COLORS = [
     "#ef4444", "#f97316", "#eab308", "#22c55e",
     "#06b6d4", "#6366f1", "#a855f7", "#ec4899",
     "#14b8a6", "#f43f5e", "#84cc16", "#0ea5e9",
   ];
-  const randomColor = MEMBER_COLORS[Math.floor(Math.random() * MEMBER_COLORS.length)];
+
+  const hexToRgb = (hex: string): [number, number, number] => {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const colorDistance = (a: string, b: string): number => {
+    const [ar, ag, ab] = hexToRgb(a);
+    const [br, bg, bb] = hexToRgb(b);
+    return Math.sqrt((ar - br) ** 2 + (ag - bg) ** 2 + (ab - bb) ** 2);
+  };
+
+  const { data: existingMembers } = await serviceSupabase
+    .from("group_members")
+    .select("member_color")
+    .eq("group_id", invite.group_id);
+  const existingColors = (existingMembers ?? [])
+    .map((m) => m.member_color)
+    .filter((c): c is string => typeof c === "string" && c.length > 0);
+
+  // Pick the palette color with the greatest minimum distance to any existing color.
+  // If the group has no members yet, fall back to a random pick.
+  let chosenColor: string;
+  if (existingColors.length === 0) {
+    chosenColor = MEMBER_COLORS[Math.floor(Math.random() * MEMBER_COLORS.length)];
+  } else {
+    chosenColor = MEMBER_COLORS.reduce((best, candidate) => {
+      const minDist = Math.min(...existingColors.map((ec) => colorDistance(candidate, ec)));
+      const bestDist = Math.min(...existingColors.map((ec) => colorDistance(best, ec)));
+      return minDist > bestDist ? candidate : best;
+    });
+  }
 
   // Add member with the group's default permissions
   const defaultPermissions: "view_only" | "view_comment" | "can_adjust" =
@@ -105,7 +135,7 @@ export async function POST(_req: Request, { params }: Params) {
     user_id: user.id,
     role: "member",
     member_permissions: defaultPermissions,
-    member_color: randomColor,
+    member_color: chosenColor,
   } as GroupMemberInsert;
   const { error: insertError } = await serviceSupabase
     .from("group_members")
